@@ -29,6 +29,7 @@ import io.github.masgzy.nekoport.NekoApp
 import io.github.masgzy.nekoport.R
 import io.github.masgzy.nekoport.core.TermuxMirror
 import io.github.masgzy.nekoport.core.ThemeMode
+import io.github.masgzy.nekoport.runtime.RuntimePackage
 import io.github.masgzy.nekoport.runtime.TermuxRuntime
 import io.github.masgzy.nekoport.ui.OverlayBus
 import kotlinx.coroutines.launch
@@ -55,9 +56,6 @@ fun SettingsPage(contentPadding: PaddingValues) {
     val scope = rememberCoroutineScope()
 
     var themeIndex by remember { mutableIntStateOf(ThemeMode.entries.indexOf(settings.themeMode)) }
-    var installProgress by remember { mutableStateOf<String?>(null) }
-    var installError by remember { mutableStateOf<String?>(null) }
-    var showUninstallConfirm by remember { mutableStateOf(false) }
     var showMoreMirrors by remember { mutableStateOf(false) }
     var showCustomMirror by remember { mutableStateOf(false) }
     var customMirror by remember { mutableStateOf(TextFieldValue(settings.repoMirror)) }
@@ -106,96 +104,15 @@ fun SettingsPage(contentPadding: PaddingValues) {
             }
         }
 
-        // ---- Server runtime (real binaries) ----
+        // ---- Server runtime: every component managed individually ----
         item {
             SmallTitle(text = stringResource(R.string.runtime_title))
+        }
+        item {
+            RuntimeComponentsCard()
+        }
+        item {
             Card {
-                val versions = state.runtime.versions
-                if (versions.isEmpty()) {
-                    Text(
-                        text = stringResource(R.string.runtime_missing),
-                        color = colorScheme.onSurfaceVariantSummary,
-                        style = MiuixTheme.textStyles.main,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                    )
-                } else {
-                    versions.forEach { (pkg, version) ->
-                        ArrowPreference(
-                            title = pkg.label,
-                            summary = "v$version",
-                            onClick = { },
-                        )
-                    }
-                }
-                installProgress?.let {
-                    Text(
-                        text = it,
-                        color = colorScheme.primary,
-                        style = MiuixTheme.textStyles.subtitle,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                    )
-                }
-                installError?.let {
-                    Text(
-                        text = stringResource(R.string.runtime_install_failed, it),
-                        color = colorScheme.primary,
-                        style = MiuixTheme.textStyles.subtitle,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                    )
-                }
-                Text(
-                    text = stringResource(R.string.runtime_note),
-                    color = colorScheme.onSurfaceVariantSummary,
-                    style = MiuixTheme.textStyles.subtitle,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                )
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    TextButton(
-                        text = if (state.runtime.installed) {
-                            stringResource(R.string.runtime_reinstall)
-                        } else {
-                            stringResource(R.string.runtime_install)
-                        },
-                        enabled = installProgress == null,
-                        onClick = {
-                            installProgress = context.getString(R.string.runtime_installing)
-                            installError = null
-                            scope.launch {
-                                val result = TermuxRuntime.install(context, settings.repoMirror) { progress ->
-                                    installProgress = when (progress) {
-                                        is TermuxRuntime.Progress.Package ->
-                                            "${progress.name} (${progress.index}/${progress.total})"
-                                        is TermuxRuntime.Progress.Download ->
-                                            "${progress.name} ${progress.percent}%"
-                                        is TermuxRuntime.Progress.Phase -> "..."
-                                    }
-                                }
-                                result.fold(
-                                    onSuccess = {
-                                        installProgress = null
-                                        manager.refreshRuntimeStatus()
-                                    },
-                                    onFailure = {
-                                        installProgress = null
-                                        installError = it.message ?: "unknown error"
-                                    },
-                                )
-                            }
-                        },
-                        modifier = Modifier.weight(1f),
-                    )
-                    TextButton(
-                        text = stringResource(R.string.runtime_uninstall),
-                        enabled = state.runtime.installed && installProgress == null,
-                        onClick = { showUninstallConfirm = true },
-                        modifier = Modifier.weight(1f),
-                    )
-                }
                 OverlaySpinnerPreference(
                     items = (pinnedLabels + listOf(stringResource(R.string.mirror_more)))
                         .map { DropdownItem(text = it, onClick = {}) },
@@ -209,6 +126,12 @@ fun SettingsPage(contentPadding: PaddingValues) {
                             showMoreMirrors = true
                         }
                     },
+                )
+                Text(
+                    text = stringResource(R.string.runtime_note),
+                    color = colorScheme.onSurfaceVariantSummary,
+                    style = MiuixTheme.textStyles.subtitle,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
             }
         }
@@ -254,37 +177,6 @@ fun SettingsPage(contentPadding: PaddingValues) {
                     color = colorScheme.onSurfaceVariantSummary,
                     style = MiuixTheme.textStyles.subtitle,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                )
-            }
-        }
-    }
-
-    if (showUninstallConfirm) {
-        OverlayDialog(
-            show = true,
-            title = stringResource(R.string.runtime_uninstall),
-            summary = stringResource(R.string.runtime_uninstall_confirm),
-            onDismissRequest = { showUninstallConfirm = false },
-        ) {
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                TextButton(
-                    text = stringResource(R.string.dialog_cancel),
-                    onClick = { showUninstallConfirm = false },
-                    modifier = Modifier.weight(1f),
-                )
-                TextButton(
-                    text = stringResource(R.string.dialog_ok),
-                    onClick = {
-                        scope.launch {
-                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                                manager.stopAll()
-                                TermuxRuntime.uninstall(context)
-                            }
-                            manager.refreshRuntimeStatus()
-                            showUninstallConfirm = false
-                        }
-                    },
-                    modifier = Modifier.weight(1f),
                 )
             }
         }
@@ -354,6 +246,154 @@ fun SettingsPage(contentPadding: PaddingValues) {
                         modifier = Modifier.weight(1f),
                     )
                 }
+            }
+        }
+    }
+}
+
+/**
+ * One row per bundled component with install / update / uninstall actions.
+ * Uninstalling keeps shared dependencies (files claimed by another installed
+ * package) and refuses to remove a web engine that still serves a site.
+ */
+@Composable
+private fun RuntimeComponentsCard() {
+    val manager = NekoApp.get().serverManager
+    val state by manager.state.collectAsState()
+    val config by manager.config.collectAsState()
+    val colorScheme = MiuixTheme.colorScheme
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    // progress text keyed by package name; busy = any operation running
+    var progressFor by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var errorText by remember { mutableStateOf<String?>(null) }
+    var confirmUninstall by remember { mutableStateOf<RuntimePackage?>(null) }
+    var sizes by remember { mutableStateOf<Map<RuntimePackage, Long>>(emptyMap()) }
+
+    LaunchedEffect(state.runtime.installed, state.runtime.versions) {
+        val out = HashMap<RuntimePackage, Long>()
+        for (pkg in RuntimePackage.ALL) {
+            out[pkg] = TermuxRuntime.packageSize(context, pkg)
+        }
+        sizes = out
+    }
+
+    fun progressLabel(pkg: RuntimePackage) = progressFor?.takeIf { it.first == pkg.packageName }?.second
+
+    suspend fun runInstall(roots: List<RuntimePackage>?, progressKey: String) {
+        progressFor = progressKey to context.getString(R.string.runtime_installing)
+        errorText = null
+        val result = TermuxRuntime.install(context, config.settings.repoMirror, roots) { progress ->
+            val label = when (progress) {
+                is TermuxRuntime.Progress.Package -> "${progress.name} (${progress.index}/${progress.total})"
+                is TermuxRuntime.Progress.Download -> "${progress.name} ${progress.percent}%"
+                is TermuxRuntime.Progress.Phase -> null
+            }
+            if (label != null) progressFor = progressKey to label
+        }
+        result.fold(
+            onSuccess = { progressFor = null },
+            onFailure = {
+                progressFor = null
+                errorText = it.message ?: "unknown error"
+            },
+        )
+        manager.refreshRuntimeStatus()
+    }
+
+    Card {
+        RuntimePackage.ALL.forEach { pkg ->
+            val version = state.runtime.versions[pkg]
+            val sizeMb = sizes[pkg] ?: 0L
+            val busy = progressFor != null
+            val summary = buildString {
+                if (version != null) {
+                    append("v$version")
+                    if (sizeMb > 0) append(" · ${"%.1f".format(sizeMb / 1048576.0)} MB")
+                } else {
+                    append(stringResource(R.string.runtime_not_installed))
+                }
+                progressLabel(pkg)?.let { append(" · $it") }
+            }
+            Text(
+                text = pkg.label,
+                color = colorScheme.onSurface,
+                style = MiuixTheme.textStyles.main,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+            Text(
+                text = summary,
+                color = colorScheme.onSurfaceVariantSummary,
+                style = MiuixTheme.textStyles.subtitle,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                TextButton(
+                    text = stringResource(
+                        if (version != null) R.string.runtime_update_one else R.string.runtime_install_one,
+                    ),
+                    enabled = !busy,
+                    onClick = {
+                        scope.launch { runInstall(listOf(pkg), pkg.packageName) }
+                    },
+                    modifier = Modifier.weight(1f),
+                )
+                if (version != null) {
+                    TextButton(
+                        text = stringResource(R.string.runtime_uninstall_one),
+                        enabled = !busy,
+                        onClick = { confirmUninstall = pkg },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+        }
+        errorText?.let {
+            Text(
+                text = stringResource(R.string.runtime_install_failed, it),
+                color = colorScheme.primary,
+                style = MiuixTheme.textStyles.subtitle,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+        }
+    }
+
+    confirmUninstall?.let { pkg ->
+        OverlayDialog(
+            show = true,
+            title = stringResource(R.string.runtime_uninstall_one, pkg.label),
+            summary = stringResource(R.string.runtime_uninstall_one_confirm, pkg.label),
+            onDismissRequest = { confirmUninstall = null },
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                TextButton(
+                    text = stringResource(R.string.dialog_cancel),
+                    onClick = { confirmUninstall = null },
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(
+                    text = stringResource(R.string.dialog_ok),
+                    onClick = {
+                        scope.launch {
+                            progressFor = pkg.packageName to context.getString(R.string.runtime_installing)
+                            val result = TermuxRuntime.uninstallPackage(context, pkg)
+                            result.fold(
+                                onSuccess = { errorText = null },
+                                onFailure = { errorText = it.message },
+                            )
+                            progressFor = null
+                            manager.refreshRuntimeStatus()
+                            confirmUninstall = null
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                )
             }
         }
     }

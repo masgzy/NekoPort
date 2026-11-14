@@ -85,6 +85,10 @@
     <string name="runtime_reinstall">重新安装 / 更新组件</string>
     <string name="runtime_uninstall">卸载组件</string>
     <string name="runtime_uninstall_confirm">卸载后所有服务将停止且无法启动，直到重新安装。确定卸载？</string>
+    <string name="runtime_install_one">安装</string>
+    <string name="runtime_update_one">更新</string>
+    <string name="runtime_uninstall_one">卸载 %1$s</string>
+    <string name="runtime_uninstall_one_confirm">将停止该组件的进程并删除其文件（共享依赖保留；MariaDB 数据目录保留）。确定卸载 %1$s？</string>
     <string name="runtime_install_failed">安装失败：%1$s</string>
     <string name="runtime_not_installed">未安装</string>
     <string name="runtime_note">运行时来自 Termux 软件源（aarch64/arm/x86_64 原生编译），安装于应用私有目录，配置文件已内置安全加固。首次安装需要联网，约 50-100 MB。</string>

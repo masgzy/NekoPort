@@ -85,6 +85,10 @@
     <string name="runtime_reinstall">Reinstall / update components</string>
     <string name="runtime_uninstall">Uninstall components</string>
     <string name="runtime_uninstall_confirm">All services will stop and cannot start until you reinstall. Uninstall now?</string>
+    <string name="runtime_install_one">Install</string>
+    <string name="runtime_update_one">Update</string>
+    <string name="runtime_uninstall_one">Uninstall %1$s</string>
+    <string name="runtime_uninstall_one_confirm">The component\'s processes will be stopped and its files removed (shared dependencies and the MariaDB data directory are kept). Uninstall %1$s?</string>
     <string name="runtime_install_failed">Install failed: %1$s</string>
     <string name="runtime_not_installed">Not installed</string>
     <string name="runtime_note">Binaries come from the Termux repository (native aarch64/arm/x86_64 builds), installed into the app private directory with hardened configs. First install needs network access, roughly 50-100 MB.</string>

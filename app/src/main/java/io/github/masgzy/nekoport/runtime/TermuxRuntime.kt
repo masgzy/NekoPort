@@ -3,10 +3,16 @@ package io.github.masgzy.nekoport.runtime
 import android.content.Context
 import android.os.Build
 import io.github.masgzy.nekoport.core.AppLog
+import io.github.masgzy.nekoport.core.Engine
+import io.github.masgzy.nekoport.core.ServerManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.json.jsonObject
 import org.apache.commons.compress.archivers.ar.ArArchiveInputStream
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
 import org.apache.commons.compress.compressors.gzip.GzipCompressorInputStream
@@ -44,7 +50,10 @@ enum class RuntimePackage(val packageName: String, val binary: String, val label
 }
 
 @Serializable
-internal data class InstalledState(val packages: Map<String, String> = emptyMap())
+internal data class InstalledPackage(val version: String, val files: List<String> = emptyList())
+
+@Serializable
+internal data class InstalledState(val packages: Map<String, InstalledPackage> = emptyMap())
 
 /**
  * Installs/uninstalls the real server binaries into the app private directory
@@ -87,7 +96,24 @@ object TermuxRuntime {
     private fun readInstalledState(context: Context): InstalledState = runCatching {
         val file = stateFile(context)
         if (!file.exists()) return InstalledState()
-        json.decodeFromString(InstalledState.serializer(), file.readText())
+        val text = file.readText()
+        try {
+            json.decodeFromString(InstalledState.serializer(), text)
+        } catch (_: Exception) {
+            // Legacy format: {"packages": {"name": "1.2.3"}} - values were
+            // plain version strings. Convert so old installs keep working.
+            val obj = json.parseToJsonElement(text)
+            val packagesObj = obj.jsonObject["packages"]?.jsonObject ?: emptyMap()
+            InstalledState(
+                packages = packagesObj.mapValues { (_, v) ->
+                    when (v) {
+                        is JsonPrimitive -> InstalledPackage(v.content)
+                        is JsonObject -> json.decodeFromJsonElement(InstalledPackage.serializer(), v)
+                        else -> InstalledPackage("")
+                    }
+                },
+            )
+        }
     }.getOrElse { InstalledState() }
 
     @Synchronized
@@ -118,7 +144,7 @@ object TermuxRuntime {
             val recorded = installed[pkg.packageName]
             val version = detectVersion(context, pkg)
                 // fallback: version recorded from the package index, strip epoch ("1:2.4.71")
-                ?: recorded?.let { it.substringAfter(':', it) }
+                ?: recorded?.version?.let { it.substringAfter(':', it) }
                 ?: continue
             result[pkg] = version
         }
@@ -152,10 +178,13 @@ object TermuxRuntime {
         data class Download(val name: String, val percent: Int) : Progress()
     }
 
-    /** Installs every runtime package (and dependencies) that is missing. */
+    /** Installs every runtime package (and dependencies) that is missing.
+     *  When [roots] is given, only the closure of those components is fetched
+     *  (per-component install); the default installs/updates everything. */
     suspend fun install(
         context: Context,
         mirror: String,
+        roots: List<RuntimePackage>? = null,
         onProgress: suspend (Progress) -> Unit,
     ): Result<Map<RuntimePackage, String>> = withContext(Dispatchers.IO) {
         try {
@@ -172,7 +201,7 @@ object TermuxRuntime {
             val index = fetchIndex(base, arch)
             AppLog.i(TAG, "index loaded: ${index.size} packages")
 
-            val rootPackages = RuntimePackage.ALL.map { it.packageName }
+            val rootPackages = roots?.map { it.packageName } ?: RuntimePackage.ALL.map { it.packageName }
             onProgress(Progress.Phase("resolve"))
             val closure = resolveDependencies(index, rootPackages)
             if (closure.isEmpty()) throw RepoException("runtime packages not found in index")
@@ -181,22 +210,28 @@ object TermuxRuntime {
             val missing = closure.filter { it.name !in alreadyInstalled }
             AppLog.i(TAG, "dependency closure: ${closure.joinToString { it.name }}")
             val total = missing.size
+            val manifest = HashMap<String, List<String>>()
             missing.forEachIndexed { i, pkg ->
                 onProgress(Progress.Package(pkg.name, i + 1, total))
                 val debFile = download(context, base, pkg) { percent ->
                     onProgress(Progress.Download(pkg.name, percent))
                 }
                 onProgress(Progress.Phase("extract:${pkg.name}"))
-                extractDeb(debFile, prefix)
+                manifest[pkg.name] = extractDeb(debFile, prefix)
                 debFile.delete()
             }
 
             markExecutables(context)
 
-            // Record installed versions.
+            // Record installed versions + per-package file manifests (used for
+            // selective uninstall; shared dependencies are never double-owned).
             val state = readInstalledState(context).packages.toMutableMap()
             for (pkg in closure) {
-                state[pkg.name] = pkg.version
+                val existing = state[pkg.name]
+                state[pkg.name] = InstalledPackage(
+                    version = pkg.version,
+                    files = manifest[pkg.name] ?: existing?.files ?: emptyList(),
+                )
             }
             writeInstalledState(context, InstalledState(state))
 
@@ -221,6 +256,86 @@ object TermuxRuntime {
         etcDir(context).deleteRecursively()
         AppLog.i(TAG, "runtime uninstalled")
         return ok
+    }
+
+    /** Processes whose lifecycle belongs to [pkg]. */
+    private fun processKeys(context: Context, pkg: RuntimePackage): List<String> = when (pkg) {
+        RuntimePackage.LIGHTTPD -> engineSiteKeys(context, Engine.LIGHTTPD)
+        RuntimePackage.NGINX -> engineSiteKeys(context, Engine.NGINX)
+        RuntimePackage.APACHE -> engineSiteKeys(context, Engine.APACHE)
+        RuntimePackage.PHP_FPM -> listOf("php-fpm")
+        RuntimePackage.MARIADB -> listOf("maria")
+        RuntimePackage.PURE_FTPD -> listOf("ftp")
+    }
+
+    private fun engineSiteKeys(context: Context, engine: Engine): List<String> =
+        ServerManager.get(context).config.value.sites
+            .filter { it.engine == engine }
+            .map { "site-${it.id}-${engine.id}" }
+
+    /**
+     * Removes a single component: stops its processes, deletes the files it
+     * owns (files also claimed by another installed package are kept) and
+     * updates the manifest. MariaDB's data directory is preserved.
+     *
+     * Returns a readable failure reason when the component cannot be removed.
+     */
+    suspend fun uninstallPackage(context: Context, pkg: RuntimePackage): Result<Unit> = withContext(Dispatchers.IO) {
+        val state = readInstalledState(context)
+        val entry = state.packages[pkg.packageName]
+        if (entry == null) {
+            return@withContext Result.failure(IllegalStateException("package ${pkg.packageName} is not installed"))
+        }
+        // A web engine still referenced by a site must not disappear.
+        val engine = when (pkg) {
+            RuntimePackage.LIGHTTPD -> Engine.LIGHTTPD
+            RuntimePackage.NGINX -> Engine.NGINX
+            RuntimePackage.APACHE -> Engine.APACHE
+            else -> null
+        }
+        if (engine != null) {
+            val users = ServerManager.get(context).config.value.sites.filter { it.engine == engine }
+            if (users.isNotEmpty()) {
+                return@withContext Result.failure(
+                    IllegalStateException("${engine.displayName}: ${users.joinToString { it.name }}"),
+                )
+            }
+        }
+        if (entry.files.isEmpty()) {
+            return@withContext Result.failure(IllegalStateException("no file manifest; reinstall first"))
+        }
+
+        // Stop the component's processes before deleting files under them.
+        for (key in processKeys(context, pkg)) {
+            ProcessController.stop(key)
+        }
+
+        // Reverse index: never delete files another installed package owns too.
+        val ownedByOthers = state.packages
+            .filterKeys { it != pkg.packageName }
+            .values
+            .flatMap { it.files }
+            .toHashSet()
+        val prefix = prefixDir(context)
+        var removed = 0
+        for (rel in entry.files) {
+            if (rel in ownedByOthers) continue
+            val f = File(prefix, rel)
+            if (f.exists() && f.delete()) removed++
+        }
+        AppLog.i(TAG, "uninstalled ${pkg.packageName}: $removed files removed (${entry.files.size - removed} shared)")
+
+        val newState = state.packages.toMutableMap()
+        newState.remove(pkg.packageName)
+        writeInstalledState(context, InstalledState(newState))
+        Result.success(Unit)
+    }
+
+    /** Approximate on-disk size of an installed component (sum of its files). */
+    fun packageSize(context: Context, pkg: RuntimePackage): Long {
+        val entry = readInstalledState(context).packages[pkg.packageName] ?: return 0L
+        val prefix = prefixDir(context)
+        return entry.files.sumOf { rel -> runCatching { File(prefix, rel).length() }.getOrDefault(0L) }
     }
 
     /** Makes every extracted ELF runnable (data-dir exec is allowed: targetSdk 28). */
@@ -379,9 +494,11 @@ object TermuxRuntime {
         return target
     }
 
-    /** Extracts the `data.tar.*` payload of a .deb into [dest], path-traversal safe. */
-    private fun extractDeb(deb: File, dest: File) {
+    /** Extracts the `data.tar.*` payload of a .deb into [dest], path-traversal safe.
+     *  Returns the relative paths of the regular files written. */
+    private fun extractDeb(deb: File, dest: File): List<String> {
         val destCanonical = dest.canonicalFile
+        val written = ArrayList<String>()
         ArArchiveInputStream(FileInputStream(deb)).use { ar ->
             var dataEntry: org.apache.commons.compress.archivers.ArchiveEntry? = null
             while (run { dataEntry = ar.nextArEntry; dataEntry } != null) {
@@ -437,11 +554,12 @@ object TermuxRuntime {
                                     if (entry.mode and 0x49 != 0) { // u+x, g+x, o+x
                                         target.setExecutable(true, false)
                                     }
+                                    written.add(rel)
                                 }
                             }
                         }
                     }
-                    return
+                    return written
                 }
             }
         }
