@@ -46,6 +46,12 @@ data class SiteConfig(
      * php2shell mitigation.
      */
     val phpExtensions: List<String> = listOf("php"),
+    /**
+     * Custom document root. Empty string = the default private directory
+     * `filesDir/sites/<name>` (keeps old configs untouched); a non-empty
+     * value is an absolute path such as `/sdcard/htdocs`.
+     */
+    val docRoot: String = "",
 ) {
     companion object {
         val NAME_REGEX = Regex("^[A-Za-z0-9_-]{1,64}$")

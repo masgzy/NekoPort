@@ -38,7 +38,7 @@ private val LogColors = mapOf(
 
 @Composable
 fun LogsPage(contentPadding: PaddingValues) {
-    val entries by AppLog.flow.collectAsState()
+    val entries by AppLog.flow.collectAsState(initial = emptyList())
     val colorScheme = MiuixTheme.colorScheme
     var filterIndex by remember { mutableIntStateOf(0) }
     var showClearDialog by remember { mutableStateOf(false) }

@@ -20,7 +20,10 @@
     <string name="sites_empty">Tap the button in the bottom-right corner to create your first site</string>
     <string name="site_name">Site name</string>
     <string name="site_port">Listen port</string>
-    <string name="site_docroot">Document root</string>
+    <string name="site_docroot">Document root (absolute path, empty = default)</string>
+    <string name="site_docroot_default">Default directory</string>
+    <string name="site_docroot_sdcard">/sdcard</string>
+    <string name="site_docroot_hint">The site root can live on shared storage (e.g. /sdcard/htdocs); missing directories are created and storage permission is requested on first use</string>
     <string name="site_engine">Server engine</string>
     <string name="site_enable_php">Enable PHP</string>
     <string name="site_enable_php_summary">PHP files handled by php-fpm (FastCGI), forwarded strictly by extension whitelist</string>
@@ -35,6 +38,8 @@
     <string name="site_enabled">Enable this site</string>
     <string name="site_status_running">Running</string>
     <string name="site_status_stopped">Stopped</string>
+    <string name="site_status_starting">Starting…</string>
+    <string name="site_status_port_failed">Not ready on port %1$d, see logs</string>
     <string name="site_status_no_runtime">Server components not installed - tap \"Install server components\" first</string>
     <string name="site_edit">Edit site</string>
     <string name="site_edit_conf">Config file</string>
@@ -77,6 +82,8 @@
     <string name="maria_enable">Enable MySQL service</string>
     <string name="maria_status_running">Running · port %1$d</string>
     <string name="maria_status_stopped">Stopped</string>
+    <string name="maria_status_initializing">Initializing database (first run may take 1-2 minutes)…</string>
+    <string name="maria_status_starting">Starting database…</string>
     <string name="maria_connection">Connection info</string>
     <string name="maria_connection_hint">Apps on this device connect via localhost / 127.0.0.1; root starts with an empty password, local only</string>
     <string name="maria_connection_remote">LAN connections are allowed; other devices can connect via the device IP</string>
@@ -122,6 +129,7 @@
     <string name="ftp_enable">Enable FTP service</string>
     <string name="ftp_status_running">Running · port %1$d</string>
     <string name="ftp_status_stopped">Stopped</string>
+    <string name="ftp_status_starting">Starting FTP…</string>
     <string name="ftp_connection">Connection info</string>
     <string name="ftp_connection_hint">Connect with any FTP client (passive port range below)</string>
     <string name="ftp_root_hint">The FTP root is the sites root (sites/), letting you manage every site\'s files after login</string>
@@ -166,6 +174,9 @@
     <string name="editor_save">Save</string>
     <string name="editor_reset">Reset</string>
     <string name="editor_reset_confirm">Delete the custom config and return to the generated defaults? Takes effect on next start.</string>
+    <string name="editor_unsaved_title">Unsaved changes</string>
+    <string name="editor_unsaved_summary">The file has unsaved changes. Save before leaving?</string>
+    <string name="editor_unsaved_discard">Discard</string>
 
     <!-- Settings -->
     <string name="settings_theme">Theme mode</string>

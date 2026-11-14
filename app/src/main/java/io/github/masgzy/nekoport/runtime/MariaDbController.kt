@@ -22,9 +22,12 @@ object MariaDbController {
         File(dataDir(context), "mysql").isDirectory
 
     /**
-     * Bootstraps the data directory once. The install-db script is executed
-     * through `/system/bin/sh` because Termux ships it with a Termux-style
-     * shebang; its baked-in prefix is rewritten at install time.
+     * Bootstraps the data directory once. The upstream script is a bash
+     * script whose shebang was rewritten at install time to our own prefix;
+     * we run it with our bundled bash when available (Android's mksh cannot
+     * parse bash syntax and failed silently before). The bootstrap can take
+     * tens of seconds on first run, so a hard timeout guards against hangs.
+     * Must be called from a background thread.
      */
     fun initialize(context: Context): Result<Unit> {
         val prefix = TermuxRuntime.prefixDir(context)
@@ -34,12 +37,20 @@ object MariaDbController {
             ?: return Result.failure(IllegalStateException("mariadb-install-db not found"))
 
         val datadir = dataDir(context).apply { mkdirs() }
-        val cmd = listOf(
-            "/system/bin/sh",
-            script.canonicalPath,
-            "--datadir=${datadir.canonicalPath}",
-            "--skip-name-resolve",
-        )
+        val bash = File(prefix, "bin/bash")
+        val cmd = if (bash.exists()) {
+            listOf(
+                bash.canonicalPath, script.canonicalPath,
+                "--datadir=${datadir.canonicalPath}",
+                "--skip-name-resolve",
+            )
+        } else {
+            listOf(
+                script.canonicalPath,
+                "--datadir=${datadir.canonicalPath}",
+                "--skip-name-resolve",
+            )
+        }
         AppLog.i(TAG, "bootstrapping datadir: ${cmd.joinToString(" ")}")
         return runCatching {
             val pb = ProcessBuilder(cmd)
@@ -47,12 +58,31 @@ object MariaDbController {
             pb.redirectErrorStream(true)
             pb.directory(TermuxRuntime.runtimeRoot(context))
             val proc = pb.start()
-            val output = proc.inputStream.bufferedReader().readText()
-            val rc = proc.waitFor()
+            // Pump output while waiting so the pipe never fills up and the
+            // process never blocks on a full stdout buffer.
+            val output = StringBuilder()
+            val pump = Thread {
+                runCatching {
+                    proc.inputStream.bufferedReader().forEachLine { line ->
+                        synchronized(output) { output.appendLine(line) }
+                    }
+                }
+            }.apply { isDaemon = true; start() }
+            val finished = proc.waitFor(120, java.util.concurrent.TimeUnit.SECONDS)
+            if (!finished) {
+                proc.destroyForcibly()
+                pump.join(1000)
+                throw IllegalStateException("datadir bootstrap timed out after 120 s")
+            }
+            pump.join(1000)
+            val text = synchronized(output) { output.toString() }
+            val rc = proc.exitValue()
             val logFile = File(TermuxRuntime.logsDir(context), "mariadb-init.log")
-            runCatching { logFile.writeText(output.takeLast(256 * 1024)) }
+            runCatching { logFile.writeText(text.takeLast(256 * 1024)) }
             if (rc != 0) {
-                throw IllegalStateException("mariadb-install-db exited with $rc: ${output.lineSequence().lastOrNull() ?: ""}")
+                throw IllegalStateException(
+                    "mariadb-install-db exited with $rc: ${text.lineSequence().lastOrNull { it.isNotBlank() } ?: ""}".take(300),
+                )
             }
             if (!File(datadir, "mysql").isDirectory) {
                 throw IllegalStateException("datadir bootstrap produced no system tables")

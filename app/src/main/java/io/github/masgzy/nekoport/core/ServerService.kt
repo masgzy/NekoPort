@@ -37,17 +37,24 @@ class ServerService : Service() {
         val manager = ServerManager.get(this)
         when (intent?.action) {
             ACTION_STOP -> {
-                manager.stopAll()
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                stopSelf()
+                // Stop everything off the main thread: stopAll waits up to
+                // several seconds per process (SIGTERM grace period).
+                scope.launch {
+                    runCatching { manager.stopAll() }
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf()
+                }
                 return START_NOT_STICKY
             }
             else -> {
+                // The notification must appear immediately (main thread), but
+                // the actual service startup is blocking work: launch it on
+                // the service IO scope instead of freezing onStartCommand.
                 startForegroundCompat()
                 // (Re)start all configured services - startAll is idempotent.
-                manager.startAll()
+                scope.launch { runCatching { manager.startAll() } }
                 scope.launch {
-                    manager.refresh()
+                    runCatching { manager.refresh() }
                     notifyState(manager)
                 }
                 return START_STICKY

@@ -18,6 +18,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        io.github.masgzy.nekoport.ui.pages.ActivityHolder.activity = this
         val manager = NekoApp.get().serverManager
         setContent {
             val config by manager.config.collectAsState()

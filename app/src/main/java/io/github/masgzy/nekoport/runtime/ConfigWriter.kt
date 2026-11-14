@@ -364,9 +364,10 @@ object ConfigWriter {
         sites.filter { it.enablePhp }
             .joinToString(";") { "${it.id}:${it.name}:${it.phpExtensions.joinToString(",")}" }
 
-    fun writePhpFpmConf(context: Context, sites: List<SiteConfig>, sitesRoot: File): File {
+    fun writePhpFpmConf(context: Context, sites: List<SiteConfig>): File {
         val conf = phpFpmConfAuto(context)
         val run = runDir(context)
+        val sitesRoot = File(context.filesDir, "sites")
         val sb = StringBuilder(BANNER)
         sb.appendLine("[global]")
         sb.appendLine("pid = ${File(run, "php-fpm.pid").canonicalPath}")
@@ -374,7 +375,8 @@ object ConfigWriter {
         sb.appendLine("daemonize = no")
         sb.appendLine("process_control_timeout = 5s")
         for (site in sites.filter { it.enablePhp }) {
-            val docroot = File(sitesRoot, site.name)
+            val customRoot = site.docRoot.trim()
+            val docroot = if (customRoot.isEmpty()) File(sitesRoot, site.name) else File(customRoot)
             val sock = siteSocket(context, site.id)
             val siteTmp = File(TermuxRuntime.tmpDir(context), "site-${site.id}").apply { mkdirs() }
             val siteSession = File(siteTmp, "session").apply { mkdirs() }

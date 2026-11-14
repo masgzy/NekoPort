@@ -63,15 +63,6 @@ fun SitesPage(contentPadding: PaddingValues) {
     var showEditor by rememberSaveable { mutableStateOf(false) }
     var editingSite by remember { mutableStateOf<SiteConfig?>(null) }
 
-    // Keep runtime status fresh (install state, version detection).
-    androidx.compose.runtime.LaunchedEffect(Unit) {
-        while (true) {
-            manager.refreshRuntimeStatus()
-            manager.refresh()
-            kotlinx.coroutines.delay(4000)
-        }
-    }
-
     Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
             contentPadding = contentPadding,
@@ -283,7 +274,7 @@ private fun PhpCard() {
             summary = stringResource(R.string.php_edit_fpm_conf),
             onClick = {
                 scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                    ConfigWriter.writePhpFpmConf(context, config.sites, manager.sitesRoot)
+                    ConfigWriter.writePhpFpmConf(context, config.sites)
                     val file = ConfigWriter.ensureUserCopy(ConfigWriter.phpFpmConfAuto(context))
                     OverlayBus.openEditor(
                         EditorTarget(
@@ -314,6 +305,7 @@ private fun PhpCard() {
 private fun SiteCard(runtime: SiteRuntime, onEdit: () -> Unit) {
     val manager = NekoApp.get().serverManager
     val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
     val colorScheme = MiuixTheme.colorScheme
     Card {
         SwitchPreference(
@@ -332,7 +324,7 @@ private fun SiteCard(runtime: SiteRuntime, onEdit: () -> Unit) {
             },
             checked = runtime.running,
             onCheckedChange = { on ->
-                if (on) manager.startSite(runtime.site) else manager.stopSite(runtime.site.id)
+                if (on) manager.startSiteAsync(runtime.site) else manager.stopSiteAsync(runtime.site.id)
             },
         )
         runtime.statusText?.let {
@@ -350,8 +342,8 @@ private fun SiteCard(runtime: SiteRuntime, onEdit: () -> Unit) {
         ArrowPreference(
             title = stringResource(R.string.site_edit_conf),
             onClick = {
-                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-                    val auto = ConfigWriter.writeEngineConf(context, runtime.site, manager.siteDir(runtime.site.name))
+                scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    val auto = ConfigWriter.writeEngineConf(context, runtime.site, manager.siteDocRoot(runtime.site))
                     val file = ConfigWriter.ensureUserCopy(auto)
                     OverlayBus.openEditor(
                         EditorTarget(
@@ -384,6 +376,7 @@ private fun SiteEditorDialog(site: SiteConfig?, onDismiss: () -> Unit) {
     val config by manager.config.collectAsState()
     val state by manager.state.collectAsState()
     val context = LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
     val colorScheme = MiuixTheme.colorScheme
     val isNew = site == null
 
@@ -404,6 +397,7 @@ private fun SiteEditorDialog(site: SiteConfig?, onDismiss: () -> Unit) {
     var phpExtensions by remember {
         mutableStateOf(TextFieldValue(site?.phpExtensions?.joinToString(",") ?: "php"))
     }
+    var docRoot by remember { mutableStateOf(TextFieldValue(site?.docRoot ?: "")) }
     var error by remember { mutableStateOf<String?>(null) }
 
     fun showError(res: Int) {
@@ -413,7 +407,10 @@ private fun SiteEditorDialog(site: SiteConfig?, onDismiss: () -> Unit) {
     OverlayDialog(
         show = true,
         title = if (isNew) stringResource(R.string.sites_add) else stringResource(R.string.site_edit),
-        summary = if (!isNew) stringResource(R.string.site_docroot) + ": sites/" + site!!.name else null,
+        summary = if (!isNew) {
+            stringResource(R.string.site_docroot) + ": " +
+                (site!!.docRoot.ifBlank { "sites/${site.name}" })
+        } else null,
         onDismissRequest = onDismiss,
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -441,6 +438,39 @@ private fun SiteEditorDialog(site: SiteConfig?, onDismiss: () -> Unit) {
                 selectedIndex = engineIndex,
                 title = stringResource(R.string.site_engine),
                 onSelectedIndexChange = { engineIndex = it },
+            )
+            TextField(
+                value = docRoot,
+                onValueChange = { docRoot = it },
+                label = stringResource(R.string.site_docroot),
+                useLabelAsPlaceholder = true,
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                TextButton(
+                    text = stringResource(R.string.site_docroot_default),
+                    onClick = { docRoot = TextFieldValue("") },
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(
+                    text = stringResource(R.string.site_docroot_sdcard),
+                    onClick = {
+                        scope.launch {
+                            val granted = SiteStorage.ensureStoragePermission(context)
+                            if (granted) docRoot = TextFieldValue("/sdcard/" + (name.text.trim().ifEmpty { "htdocs" }))
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            Text(
+                text = stringResource(R.string.site_docroot_hint),
+                color = colorScheme.onSurfaceVariantSummary,
+                style = MiuixTheme.textStyles.subtitle,
             )
             SwitchPreference(
                 title = stringResource(R.string.site_enabled),
@@ -516,7 +546,7 @@ private fun SiteEditorDialog(site: SiteConfig?, onDismiss: () -> Unit) {
                         text = stringResource(R.string.dialog_delete),
                         onClick = {
                             val updated = config.sites.filterNot { it.id == site!!.id }
-                            manager.stopSite(site!!.id)
+                            manager.stopSiteAsync(site!!.id)
                             manager.updateSites(updated)
                             onDismiss()
                         },
@@ -549,31 +579,40 @@ private fun SiteEditorDialog(site: SiteConfig?, onDismiss: () -> Unit) {
                                 return@TextButton
                             }
                             finalName = candidate
-                            val dir = manager.siteDir(finalName)
-                            dir.mkdirs()
-                            val index = File(dir, "index.html")
-                            if (!index.exists()) {
-                                index.writeText(
-                                    "<!DOCTYPE html><html><head><meta charset=\"utf-8\">" +
-                                        "<title>$finalName</title></head><body>" +
-                                        "<h1>$finalName</h1><p>Powered by NekoPort</p></body></html>"
+                            // All disk work and the (blocking) service launch run on IO.
+                            scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                                val docRootValue = docRoot.text.trim()
+                                if (docRootValue.isEmpty()) {
+                                    val dir = manager.siteDir(finalName)
+                                    dir.mkdirs()
+                                    val index = File(dir, "index.html")
+                                    if (!index.exists()) {
+                                        index.writeText(
+                                            "<!DOCTYPE html><html><head><meta charset=\"utf-8\">" +
+                                                "<title>$finalName</title></head><body>" +
+                                                "<h1>$finalName</h1><p>Powered by NekoPort</p></body></html>"
+                                        )
+                                    }
+                                } else {
+                                    File(docRootValue).mkdirs()
+                                }
+                                val newSite = SiteConfig(
+                                    id = manager.nextSiteId(),
+                                    name = finalName,
+                                    port = portNum,
+                                    enabled = enabled,
+                                    engine = engine,
+                                    enablePhp = enablePhp,
+                                    directoryListing = dirListing,
+                                    indexFiles = indexFiles.text.split(',').map { it.trim() }.filter { it.isNotEmpty() },
+                                    phpDenyDirs = phpDenyDirs.text.split(',').map { it.trim() }.filter { it.isNotEmpty() },
+                                    phpExtensions = phpExtensions.text.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+                                        .ifEmpty { listOf("php") },
+                                    docRoot = docRootValue,
                                 )
+                                manager.updateSites(config.sites + newSite)
+                                if (enabled) manager.startSite(newSite)
                             }
-                            val newSite = SiteConfig(
-                                id = manager.nextSiteId(),
-                                name = finalName,
-                                port = portNum,
-                                enabled = enabled,
-                                engine = engine,
-                                enablePhp = enablePhp,
-                                directoryListing = dirListing,
-                                indexFiles = indexFiles.text.split(',').map { it.trim() }.filter { it.isNotEmpty() },
-                                phpDenyDirs = phpDenyDirs.text.split(',').map { it.trim() }.filter { it.isNotEmpty() },
-                                phpExtensions = phpExtensions.text.split(',').map { it.trim() }.filter { it.isNotEmpty() }
-                                    .ifEmpty { listOf("php") },
-                            )
-                            manager.updateSites(config.sites + newSite)
-                            if (enabled) manager.startSite(newSite)
                         } else {
                             val edited = site!!.copy(
                                 port = portNum,
@@ -585,12 +624,15 @@ private fun SiteEditorDialog(site: SiteConfig?, onDismiss: () -> Unit) {
                                 phpDenyDirs = phpDenyDirs.text.split(',').map { it.trim() }.filter { it.isNotEmpty() },
                                 phpExtensions = phpExtensions.text.split(',').map { it.trim() }.filter { it.isNotEmpty() }
                                     .ifEmpty { listOf("php") },
+                                docRoot = docRoot.text.trim(),
                             )
                             val wasRunning = manager.state.value.sites
                                 .firstOrNull { it.site.id == edited.id }?.running ?: false
-                            manager.stopSite(edited.id)
-                            manager.updateSites(config.sites.map { if (it.id == edited.id) edited else it })
-                            if (wasRunning && edited.enabled) manager.startSite(edited)
+                            scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                                if (wasRunning) manager.stopSite(edited.id)
+                                manager.updateSites(config.sites.map { if (it.id == edited.id) edited else it })
+                                if (wasRunning && edited.enabled) manager.startSite(edited)
+                            }
                         }
                         onDismiss()
                     },

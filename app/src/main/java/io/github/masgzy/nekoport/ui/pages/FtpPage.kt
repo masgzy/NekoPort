@@ -59,8 +59,7 @@ fun FtpPage(contentPadding: PaddingValues) {
     LaunchedEffect(Unit) {
         while (true) {
             addresses = NetUtils.localAddresses()
-            manager.refresh()
-            delay(4000)
+            kotlinx.coroutines.delay(4000)
         }
     }
 
@@ -84,9 +83,10 @@ fun FtpPage(contentPadding: PaddingValues) {
                         if (on) {
                             manager.updateFtp(ftp.copy(enabled = true))
                             ServerService.start(context)
+                            manager.startFtpAsync()
                         } else {
                             manager.updateFtp(ftp.copy(enabled = false))
-                            manager.stopFtp()
+                            manager.stopFtpAsync()
                         }
                     },
                 )
@@ -240,7 +240,7 @@ fun FtpPage(contentPadding: PaddingValues) {
                         )
                         val wasRunning = state.ftpRunning
                         manager.updateFtp(newFtp)
-                        if (wasRunning) manager.startFtp()
+                        if (wasRunning) manager.startFtpAsync()
                     },
                     modifier = Modifier.weight(1f),
                 )

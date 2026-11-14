@@ -12,11 +12,17 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- Custom site document roots on shared storage (e.g. /sdcard/htdocs).
+         targetSdk 28 + requestLegacyExternalStorage = classic storage access,
+         the same model Termux uses to run binaries and touch /sdcard. -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
 
     <application
         android:name=".NekoApp"
         android:allowBackup="true"
         android:label="@string/app_name"
+        android:requestLegacyExternalStorage="true"
         android:supportsRtl="true"
         android:theme="@style/Theme.NekoPort"
         android:usesCleartextTraffic="true">

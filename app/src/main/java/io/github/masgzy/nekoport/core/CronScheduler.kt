@@ -88,7 +88,7 @@ class CronScheduler(
         }
     }
 
-    private fun execute(task: CronTask) {
+    private suspend fun execute(task: CronTask) {
         val start = System.currentTimeMillis()
         var output: String? = null
         var ok = true

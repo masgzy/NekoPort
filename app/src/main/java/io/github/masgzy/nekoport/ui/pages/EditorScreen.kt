@@ -1,5 +1,6 @@
 package io.github.masgzy.nekoport.ui.pages
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -8,9 +9,13 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicText
@@ -64,11 +69,23 @@ data class EditorTarget(
 /**
  * Renders the active overlay on top of everything: the config/log editor and
  * the application log page (reached from Settings).
+ *
+ * The system back button closes the overlay instead of finishing the
+ * activity (the activity is `singleTask`, so finishing it would drop the
+ * user straight onto the launcher). When unsaved edits exist, back asks
+ * first.
  */
 @Composable
 fun OverlayHost() {
     val editor by OverlayBus.editor.collectAsState()
     val appLogs by OverlayBus.appLogs.collectAsState()
+    BackHandler(enabled = editor != null || appLogs) {
+        if (editor != null) {
+            OverlayBus.requestCloseEditor()
+        } else {
+            OverlayBus.dismissAppLogs()
+        }
+    }
     when {
         editor != null -> EditorScreen(target = editor!!)
         appLogs -> AppLogScreen()
@@ -89,7 +106,17 @@ private fun OverlayScaffold(
             .fillMaxSize()
             .background(colorScheme.surface),
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                // The overlay draws over the scaffold (edge-to-edge), so it
+                // must handle the status bar itself or the title is hidden
+                // underneath it.
+                .padding(
+                    top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding(),
+                    bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
+                ),
+        ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -143,6 +170,7 @@ private fun EditorScreen(target: EditorTarget) {
     var loaded by remember(target.file.path) { mutableStateOf(false) }
     var dirty by remember(target.file.path) { mutableStateOf(false) }
     var confirmReset by remember { mutableStateOf(false) }
+    val pendingClose by OverlayBus.pendingClose.collectAsState()
 
     LaunchedEffect(target.file.path, target.readOnly) {
         val content = withContext(Dispatchers.IO) {
@@ -165,10 +193,15 @@ private fun EditorScreen(target: EditorTarget) {
         loaded = true
     }
 
+    // Nothing to save: closing immediately is always safe.
+    LaunchedEffect(pendingClose, dirty, loaded) {
+        if (pendingClose && (!dirty || !loaded)) OverlayBus.closeEditor()
+    }
+
     OverlayScaffold(
         title = target.title,
         subtitle = target.file.canonicalPath,
-        onDismiss = { OverlayBus.closeEditor() },
+        onDismiss = { OverlayBus.requestCloseEditor() },
         actions = {
             if (target.resetAction != null) {
                 TextButton(
@@ -190,6 +223,7 @@ private fun EditorScreen(target: EditorTarget) {
                                 }
                             }
                             dirty = false
+                            OverlayBus.clearPendingClose()
                         }
                     },
                 )
@@ -261,6 +295,38 @@ private fun EditorScreen(target: EditorTarget) {
                         target.resetAction?.invoke()
                         confirmReset = false
                         OverlayBus.closeEditor()
+                    },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+    }
+
+    if (pendingClose && dirty && loaded) {
+        OverlayDialog(
+            show = true,
+            title = stringResource(R.string.editor_unsaved_title),
+            summary = stringResource(R.string.editor_unsaved_summary),
+            onDismissRequest = { OverlayBus.clearPendingClose() },
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(
+                    text = stringResource(R.string.editor_unsaved_discard),
+                    onClick = { OverlayBus.closeEditor() },
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(
+                    text = stringResource(R.string.editor_save),
+                    onClick = {
+                        scope.launch {
+                            withContext(Dispatchers.IO) {
+                                runCatching {
+                                    target.file.parentFile?.mkdirs()
+                                    target.file.writeText(text.text)
+                                }
+                            }
+                            OverlayBus.closeEditor()
+                        }
                     },
                     modifier = Modifier.weight(1f),
                 )

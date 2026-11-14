@@ -20,7 +20,10 @@
     <string name="sites_empty">点击右下角按钮创建第一个站点</string>
     <string name="site_name">站点名称</string>
     <string name="site_port">监听端口</string>
-    <string name="site_docroot">站点目录</string>
+    <string name="site_docroot">站点目录（绝对路径，留空使用默认目录）</string>
+    <string name="site_docroot_default">默认目录</string>
+    <string name="site_docroot_sdcard">/sdcard</string>
+    <string name="site_docroot_hint">可将站点根目录设为内部存储（如 /sdcard/htdocs）；目录不存在时会自动创建，首次使用会申请存储权限</string>
     <string name="site_engine">服务器引擎</string>
     <string name="site_enable_php">启用 PHP</string>
     <string name="site_enable_php_summary">通过 php-fpm（FastCGI）处理 PHP 文件，按扩展名白名单精确转发</string>
@@ -35,6 +38,8 @@
     <string name="site_enabled">启用该站点</string>
     <string name="site_status_running">运行中</string>
     <string name="site_status_stopped">已停止</string>
+    <string name="site_status_starting">正在启动…</string>
+    <string name="site_status_port_failed">未在端口 %1$d 就绪，请查看日志</string>
     <string name="site_status_no_runtime">未安装服务器组件，请先点击「安装服务器组件」</string>
     <string name="site_edit">编辑站点</string>
     <string name="site_edit_conf">配置文件</string>
@@ -77,6 +82,8 @@
     <string name="maria_enable">开启 MySQL 服务</string>
     <string name="maria_status_running">运行中 · 端口 %1$d</string>
     <string name="maria_status_stopped">已停止</string>
+    <string name="maria_status_initializing">正在初始化数据库（首次约 1-2 分钟）…</string>
+    <string name="maria_status_starting">正在启动数据库…</string>
     <string name="maria_connection">连接信息</string>
     <string name="maria_connection_hint">本机应用通过 localhost / 127.0.0.1 连接；root 初始为空密码，仅限本机</string>
     <string name="maria_connection_remote">已允许局域网连接，局域网内设备可通过设备 IP 连接</string>
@@ -122,6 +129,7 @@
     <string name="ftp_enable">启用 FTP 服务</string>
     <string name="ftp_status_running">运行中 · 端口 %1$d</string>
     <string name="ftp_status_stopped">已停止</string>
+    <string name="ftp_status_starting">正在启动 FTP…</string>
     <string name="ftp_connection">连接信息</string>
     <string name="ftp_connection_hint">用 FTP 客户端连接（被动端口范围见下方）</string>
     <string name="ftp_root_hint">FTP 根目录为站点根目录（sites/），登录后可直接管理全部站点文件</string>
@@ -166,6 +174,9 @@
     <string name="editor_save">保存</string>
     <string name="editor_reset">恢复默认</string>
     <string name="editor_reset_confirm">删除自定义配置并恢复为自动生成的默认值？下次启动后生效。</string>
+    <string name="editor_unsaved_title">未保存的修改</string>
+    <string name="editor_unsaved_summary">文件有未保存的修改，退出前要保存吗？</string>
+    <string name="editor_unsaved_discard">放弃修改</string>
 
     <!-- Settings -->
     <string name="settings_theme">主题模式</string>

@@ -56,14 +56,6 @@ fun DatabasePage(contentPadding: PaddingValues) {
     var installProgress by remember { mutableStateOf<String?>(null) }
     var installError by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(Unit) {
-        while (true) {
-            manager.refreshRuntimeStatus()
-            manager.refresh()
-            delay(4000)
-        }
-    }
-
     val mariaVersion = state.runtime.versions[RuntimePackage.MARIADB]
     val mariaInstalled = remember(state.runtime.versions) {
         TermuxRuntime.isMariaDbInstalled(context)
@@ -149,11 +141,13 @@ fun DatabasePage(contentPadding: PaddingValues) {
                     onCheckedChange = { on ->
                         if (on) {
                             manager.updateMaria(maria.copy(enabled = true))
+                            // Single command path: the foreground service keeps
+                            // the notification alive, the manager starts MariaDB.
                             ServerService.start(context)
-                            scope.launch(kotlinx.coroutines.Dispatchers.IO) { manager.startMaria() }
+                            manager.startMariaAsync()
                         } else {
                             manager.updateMaria(maria.copy(enabled = false))
-                            manager.stopMaria()
+                            manager.stopMariaAsync()
                         }
                     },
                 )
@@ -235,8 +229,10 @@ fun DatabasePage(contentPadding: PaddingValues) {
                         manager.updateMaria(newMaria)
                         if (wasRunning) {
                             scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                                manager.stopMaria()
-                                manager.startMaria()
+                                runCatching {
+                                    manager.stopMaria()
+                                    manager.startMaria()
+                                }
                             }
                         }
                     },
