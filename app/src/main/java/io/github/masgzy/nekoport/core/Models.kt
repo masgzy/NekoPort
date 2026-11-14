@@ -136,6 +136,8 @@ data class AppSettings(
     val startOnBoot: Boolean = false,
     /** Termux repository base URL used to fetch the runtime packages. */
     val repoMirror: String = TermuxMirror.OFFICIAL.url,
+    /** Code-editor font size in sp (range 10..20), persisted. */
+    val editorFontSize: Int = 14,
 )
 
 enum class ThemeMode { SYSTEM, LIGHT, DARK }

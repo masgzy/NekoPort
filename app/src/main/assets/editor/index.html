@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<!--
+  NekoPort built-in code editor (WebView host).
+
+  Engine: CodeMirror 5 (MIT, https://codemirror.net/) - the same core the
+  open-source Android editor Acode (https://github.com/Acode-Foundation/Acode)
+  is built on; the interaction model (line numbers, find/replace, goto line,
+  zoom, symbol bar, Ln/Col status bar, multi-tab) follows Acode.
+  See LICENSE-CODEMIRROR.txt.
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<link rel="stylesheet" href="codemirror.min.css">
+<link rel="stylesheet" href="theme/material-darker.min.css">
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); }
+  :root { --bg: #ffffff; --fg: #1c1b1f; }
+  body.dark { --bg: #1c1b1f; --fg: #e6e1e5; }
+  .CodeMirror {
+    height: 100%;
+    font-family: monospace;
+    font-size: 14px;
+    line-height: 1.45;
+    background: var(--bg);
+    color: var(--fg);
+  }
+  .CodeMirror-gutters { background: var(--bg); border-right: 1px solid rgba(128,128,128,0.25); }
+  .CodeMirror-linenumber { color: rgba(128,128,128,0.6); }
+  body.dark .CodeMirror { background: var(--bg); color: var(--fg); }
+  body.dark .CodeMirror-cursor { border-left-color: #e6e1e5; }
+  .cm-s-default .cm-comment, body.dark .cm-s-material-darker .cm-comment { }
+  .search-hit { background: rgba(255, 213, 79, 0.55); }
+  .search-hit-active { background: rgba(255, 152, 0, 0.75); }
+</style>
+</head>
+<body>
+<textarea id="ta"></textarea>
+<script src="codemirror.min.js"></script>
+<script src="addon/active-line.min.js"></script>
+<script src="addon/matchbrackets.min.js"></script>
+<script src="addon/closebrackets.min.js"></script>
+<script src="addon/searchcursor.min.js"></script>
+<script src="mode/properties.min.js"></script>
+<script src="mode/nginx.min.js"></script>
+<script src="mode/shell.min.js"></script>
+<script src="mode/javascript.min.js"></script>
+<script src="mode/css.min.js"></script>
+<script src="mode/xml.min.js"></script>
+<script src="mode/htmlmixed.min.js"></script>
+<script src="mode/clike.min.js"></script>
+<script src="mode/php.min.js"></script>
+<script src="mode/yaml.min.js"></script>
+<script>
+"use strict";
+
+var cm = null;
+var docs = {};          // id -> { doc: CodeMirror.Doc, savedGen: changeGeneration, readOnly: bool }
+var activeId = null;
+var fontSize = 14;
+var searchState = null; // { query: RegExp, cursor: SearchCursor | null }
+
+function reportState() {
+  try {
+    if (!cm || activeId === null) return;
+    var doc = cm.getDoc();
+    var cur = cm.getCursor();
+    var entry = docs[activeId];
+    window.NekoEditor && window.NekoEditor.onState(JSON.stringify({
+      id: activeId,
+      line: cur.line + 1,
+      col: cur.ch + 1,
+      lines: doc.lineCount(),
+      dirty: entry ? (doc.changeGeneration() !== entry.savedGen) : false,
+    }));
+  } catch (e) { /* bridge not ready yet */ }
+}
+
+function markSearchHits(query, caseSensitive) {
+  cm.operation(function () {
+    clearSearchHits();
+    if (!query) return;
+    var re = new RegExp(escapeRe(query), caseSensitive ? "g" : "gi");
+    var cursor = cm.getSearchCursor(re, { line: 0, ch: 0 }, { caseFold: !caseSensitive });
+    var count = 0;
+    while (cursor.findNext() && count < 500) {
+      cm.markText(cursor.from(), cursor.to(), { className: "search-hit" });
+      count++;
+    }
+  });
+}
+
+function clearSearchHits() {
+  var marks = cm.getAllMarks();
+  for (var i = 0; i < marks.length; i++) marks[i].clear();
+}
+
+function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
+
+var Editor = {
+  init: function (dark, size) {
+    fontSize = size;
+    if (dark) document.body.classList.add("dark");
+    if (!cm) {
+      cm = CodeMirror.fromTextArea(document.getElementById("ta"), {
+        lineNumbers: true,
+        styleActiveLine: true,
+        matchBrackets: true,
+        autoCloseBrackets: true,
+        lineWrapping: false,
+        inputStyle: "contenteditable",
+        theme: dark ? "material-darker" : "default",
+      });
+      cm.setSize("100%", "100%");
+      cm.on("cursorActivity", reportState);
+      cm.on("change", reportState);
+    } else {
+      cm.setOption("theme", dark ? "material-darker" : "default");
+      setFontSize(size);
+    }
+    cm.focus();
+  },
+
+  loadDoc: function (id, content, modeName, readOnly) {
+    if (docs[id]) { Editor.switchDoc(id); return; }
+    var mode;
+    try { mode = modeName ? CodeMirror.findModeByName(modeName) || modeName : null; } catch (e) { mode = null; }
+    var doc = CodeMirror.Doc(content, mode);
+    docs[id] = { doc: doc, savedGen: doc.changeGeneration(), readOnly: !!readOnly };
+    Editor.switchDoc(id);
+  },
+
+  switchDoc: function (id) {
+    if (!docs[id]) return;
+    activeId = id;
+    var entry = docs[id];
+    cm.swapDoc(entry.doc);
+    cm.setOption("readOnly", entry.readOnly);
+    cm.focus();
+    reportState();
+  },
+
+  closeDoc: function (id) {
+    delete docs[id];
+    if (activeId === id) activeId = null;
+  },
+
+  markSaved: function (id) {
+    if (docs[id]) docs[id].savedGen = docs[id].doc.changeGeneration();
+    reportState();
+  },
+
+  setDark: function (dark) {
+    document.body.classList.toggle("dark", !!dark);
+    cm.setOption("theme", dark ? "material-darker" : "default");
+  },
+
+  setFontSize: setFontSize,
+
+  insertText: function (text) {
+    if (cm.getOption("readOnly")) return;
+    cm.replaceSelection(text);
+    cm.focus();
+  },
+
+  undo: function () { cm.undo(); cm.focus(); },
+  redo: function () { cm.redo(); cm.focus(); },
+
+  gotoLine: function (n) {
+    var line = Math.max(0, Math.min((n | 0) - 1, cm.getDoc().lineCount() - 1));
+    cm.setCursor({ line: line, ch: 0 });
+    cm.scrollIntoView(null, 120);
+    cm.focus();
+  },
+
+  find: function (query, caseSensitive) {
+    if (!query) return;
+    searchState = { query: query, caseSensitive: !!caseSensitive };
+    markSearchHits(query, caseSensitive);
+    Editor.findNext(false);
+  },
+
+  findNext: function (backwards) {
+    if (!searchState) return;
+    var re = new RegExp(escapeRe(searchState.query), searchState.caseSensitive ? "g" : "gi");
+    var cur = cm.getSearchCursor(re, cm.getCursor(), { caseFold: !searchState.caseSensitive });
+    var found = backwards ? cur.findPrevious() : cur.findNext();
+    if (!found) {
+      cur = cm.getSearchCursor(re, backwards ? { line: cm.getDoc().lineCount() - 1, ch: 0 } : { line: 0, ch: 0 }, { caseFold: !searchState.caseSensitive });
+      found = backwards ? cur.findPrevious() : cur.findNext();
+    }
+    if (found) {
+      cm.setSelection(cur.from(), cur.to());
+      cm.scrollIntoView({ from: cur.from(), to: cur.to() }, 80);
+    }
+    cm.focus();
+  },
+
+  replaceOne: function (replacement) {
+    if (!searchState) return;
+    var sel = cm.getSelection();
+    var re = new RegExp("^" + escapeRe(searchState.query) + "$", searchState.caseSensitive ? "" : "i");
+    if (re.test(sel)) cm.replaceSelection(replacement);
+    Editor.findNext(false);
+  },
+
+  replaceAll: function (query, replacement, caseSensitive) {
+    if (!query) return;
+    cm.operation(function () {
+      var re = new RegExp(escapeRe(query), caseSensitive ? "g" : "gi");
+      var cur = cm.getSearchCursor(re, { line: 0, ch: 0 }, { caseFold: !caseSensitive });
+      var n = 0;
+      while (cur.findNext()) { cur.replace(replacement); n++; }
+    });
+    markSearchHits(searchState && searchState.query === query ? query : query, caseSensitive);
+    cm.focus();
+  },
+
+  clearSearch: function () {
+    searchState = null;
+    clearSearchHits();
+  },
+
+  saveActive: function () {
+    if (activeId === null || !docs[activeId]) return;
+    window.NekoEditor && window.NekoEditor.save(activeId, docs[activeId].doc.getValue());
+  },
+};
+
+function setFontSize(size) {
+  fontSize = Math.max(10, Math.min(20, size | 0));
+  if (!cm) return;
+  cm.getWrapperElement().style.fontSize = fontSize + "px";
+  cm.refresh();
+}
+</script>
+</body>
+</html>
