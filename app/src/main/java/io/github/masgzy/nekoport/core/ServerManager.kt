@@ -265,10 +265,18 @@ class ServerManager private constructor(private val context: Context) {
                 AppLog.i("Manager", "site '${site.name}' up on ${site.engine.displayName} :${site.port}")
             } else {
                 siteSignatures.remove(site.id)
-                AppLog.e("Manager", "site '${site.name}' did not open port ${site.port}; see logs")
+                // Surface the real failure reason (linker/config errors) from
+                // the launch log - a bare "did not open port" gave no clue.
+                val tail = ProcessController.logTail(launchLog)
+                AppLog.e(
+                    "Manager",
+                    "site '${site.name}' did not open port ${site.port}" +
+                        if (tail.isBlank()) "; no launch output" else ":\n$tail",
+                )
                 setSiteStatus(
                     site.id,
-                    context.getString(R.string.site_status_port_failed, site.port),
+                    context.getString(R.string.site_status_port_failed, site.port) +
+                        if (tail.isBlank()) "" else "\n$tail",
                 )
             }
         } catch (e: Exception) {
@@ -362,10 +370,12 @@ class ServerManager private constructor(private val context: Context) {
                 AppLog.i("Manager", "FTP up on port ${ftp.port} (user '${ftp.username}')")
             } else {
                 ftpSignature = ""
+                val tail = ProcessController.logTail(File(TermuxRuntime.logsDir(context), "ftp.log"))
+                AppLog.e("Manager", "FTP did not open port ${ftp.port}" + if (tail.isBlank()) "; no launch output" else ":\n$tail")
                 _state.value = _state.value.copy(
-                    ftpStatusText = context.getString(R.string.site_status_port_failed, ftp.port),
+                    ftpStatusText = context.getString(R.string.site_status_port_failed, ftp.port) +
+                        if (tail.isBlank()) "" else "\n$tail",
                 )
-                AppLog.e("Manager", "FTP did not open port ${ftp.port}; see logs")
             }
         } catch (e: Exception) {
             ftpSignature = ""
@@ -426,9 +436,14 @@ class ServerManager private constructor(private val context: Context) {
         }
     }
 
-    /** Runs pure-pw with the password piped to stdin and a hard timeout. */
+    /** Runs pure-pw with the password piped to stdin and a hard timeout.
+     *  The runtime environment (LD_LIBRARY_PATH above all) is mandatory:
+     *  without it the Android linker cannot resolve pure-pw's shared
+     *  libraries (`library "libandroid-support.so" not found`) and FTP
+     *  setup failed with a rc=1 linker error. */
     private fun runPurePw(purePw: File, args: List<String>, password: String?): Pair<String, Int> {
         val pb = ProcessBuilder(listOf(purePw.canonicalPath) + args)
+        pb.environment().putAll(ProcessController.environment(context))
         pb.redirectErrorStream(true)
         val p = pb.start()
         password?.let {
@@ -520,7 +535,13 @@ class ServerManager private constructor(private val context: Context) {
             _state.value = _state.value.copy(
                 mariaStatusText = context.getString(R.string.maria_status_starting),
             )
-            MariaDbController.start(context, _config.value.maria)
+            val failure = MariaDbController.start(context, _config.value.maria)
+            if (failure != null) {
+                _state.value = _state.value.copy(
+                    mariaStatusText = context.getString(R.string.site_status_port_failed, _config.value.maria.port) +
+                        if (failure.isBlank()) "" else "\n$failure",
+                )
+            }
         } catch (e: Exception) {
             AppLog.e("Manager", "cannot start MariaDB on port ${_config.value.maria.port}: ${e.message}")
             _state.value = _state.value.copy(mariaStatusText = e.message)

@@ -124,6 +124,19 @@ object ProcessController {
 
     fun runningKeys(): Set<String> = processes.keys.toSet()
 
+    /** Last lines of [logFile], used to surface the real failure reason
+     *  (linker errors, config errors, port conflicts) in the UI instead of
+     *  a bare "did not open port". */
+    fun logTail(logFile: File, maxLines: Int = 6, maxChars: Int = 400): String =
+        runCatching {
+            if (!logFile.exists()) return@runCatching ""
+            logFile.readLines()
+                .filter { it.isNotBlank() }
+                .takeLast(maxLines)
+                .joinToString("\n")
+                .take(maxChars)
+        }.getOrDefault("")
+
     /** Blocks until a local TCP port accepts connections, or returns false. */
     fun awaitPort(port: Int, timeoutMs: Long = 10000): Boolean {
         val deadline = System.currentTimeMillis() + timeoutMs

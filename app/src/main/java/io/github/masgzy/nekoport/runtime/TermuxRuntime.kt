@@ -121,15 +121,20 @@ object TermuxRuntime {
         runCatching { stateFile(context).writeText(json.encodeToString(InstalledState.serializer(), state)) }
     }
 
-    /** Detects the version of a bundled binary by running it with its version flag. */
+    /** Detects the version of a bundled binary by running it with its version flag.
+     *  The probe runs with the shared runtime environment: without
+     *  LD_LIBRARY_PATH the Android linker rejects the ELF with
+     *  `library "libandroid-support.so" not found` and the UI showed
+     *  "clicking the version row does nothing". */
     fun detectVersion(context: Context, pkg: RuntimePackage): String? {
         val exe = File(prefixDir(context), "bin/${pkg.binary}")
         if (!exe.exists()) return null
         return runCatching {
             exe.setExecutable(true, false)
-            val proc = ProcessBuilder(exe.canonicalPath, pkg.versionArg)
-                .redirectErrorStream(true)
-                .start()
+            val pb = ProcessBuilder(exe.canonicalPath, pkg.versionArg)
+            pb.environment().putAll(ProcessController.environment(context))
+            pb.redirectErrorStream(true)
+            val proc = pb.start()
             val text = proc.inputStream.bufferedReader().readText()
             proc.waitFor()
             Regex("""([0-9]+\.[0-9]+\.[0-9]+[0-9a-zA-Z.\-]*)""").find(text)?.groupValues?.get(1)
@@ -178,14 +183,23 @@ object TermuxRuntime {
         if (!exe.exists()) return null
         return runCatching {
             exe.setExecutable(true, false)
-            val proc = ProcessBuilder(exe.canonicalPath, pkg.versionArg)
-                .redirectErrorStream(true)
-                .start()
+            val pb = ProcessBuilder(exe.canonicalPath, pkg.versionArg)
+            pb.environment().putAll(ProcessController.environment(context))
+            pb.redirectErrorStream(true)
+            val proc = pb.start()
             val text = proc.inputStream.bufferedReader().readText().trim()
             proc.waitFor()
             text.ifBlank { null }
         }.getOrNull()
     }
+
+    /** Recorded (index) version of [pkg], epoch stripped; null when absent. */
+    fun recordedVersion(context: Context, pkg: RuntimePackage): String? =
+        readInstalledState(context).packages[pkg.packageName]?.version?.let { it.substringAfter(':', it) }
+
+    /** Raw recorded version (epoch preserved) of [pkg]; null when not installed. */
+    fun readInstalledVersion(context: Context, pkg: RuntimePackage): String? =
+        readInstalledState(context).packages[pkg.packageName]?.version
 
     // ------------------------------------------------------------------
     // Install / uninstall
@@ -196,6 +210,16 @@ object TermuxRuntime {
         data class Package(val name: String, val index: Int, val total: Int) : Progress()
         data class Download(val name: String, val percent: Int) : Progress()
     }
+
+    /**
+     * Files that must exist for the runtime to be usable. A broken older
+     * install (crashed extraction, legacy layout, missing base package) used
+     * to stay broken forever because install() trusted installed.json; the
+     * health check below forces a repair in that case.
+     */
+    private fun criticalFiles(): List<String> =
+        RuntimePackage.ALL.map { "bin/${it.binary}" } +
+            listOf("bin/pure-pw", "bin/mariadb-install-db", "bin/sh", "lib/libandroid-support.so", "lib/libc++_shared.so")
 
     /** Installs every runtime package (and dependencies) that is missing.
      *  When [roots] is given, only the closure of those components is fetched
@@ -224,13 +248,25 @@ object TermuxRuntime {
             val index = fetchIndex(base, arch)
             AppLog.i(TAG, "index loaded: ${index.size} packages")
 
-            val rootPackages = roots?.map { it.packageName } ?: RuntimePackage.ALL.map { it.packageName }
+            // dash is always part of the closure: it provides bin/sh, the
+            // interpreter for the shell scripts we patch (mariadb-install-db).
+            // Without it the script's shebang pointed at a non-existent file
+            // and exec failed with error=2 ("No such file or directory").
+            val rootPackages = (roots?.map { it.packageName }
+                ?: RuntimePackage.ALL.map { it.packageName }) + "dash"
             onProgress(Progress.Phase("resolve"))
             val closure = resolveDependencies(index, rootPackages)
             if (closure.isEmpty()) throw RepoException("runtime packages not found in index")
 
+            // Self-heal: if critical files are missing even though the state
+            // claims they are installed, re-extract everything instead of
+            // trusting the manifest (fixes installs broken by older builds).
+            val broken = criticalFiles().any { !File(prefix, it).exists() }
+            if (broken) {
+                AppLog.w(TAG, "runtime is incomplete (critical files missing); forcing full repair")
+            }
             val alreadyInstalled = readInstalledState(context).packages.keys
-            val missing = closure.filter { force || it.name !in alreadyInstalled }
+            val missing = closure.filter { force || broken || it.name !in alreadyInstalled }
             AppLog.i(TAG, "dependency closure: ${closure.joinToString { it.name }}")
             val total = missing.size
             val manifest = HashMap<String, List<String>>()
@@ -419,6 +455,7 @@ object TermuxRuntime {
         "arm64-v8a" -> "aarch64"
         "armeabi-v7a" -> "arm"
         "x86_64" -> "x86_64"
+        "x86" -> "i686"
         else -> null
     }
 
@@ -466,6 +503,22 @@ object TermuxRuntime {
             }
         }
         return map
+    }
+
+    /**
+     * Fetches the repo index once and returns the latest published version of
+     * every runtime package (keyed by Termux package name, epoch preserved).
+     * Used by the update checker; throws [RepoException] on network failure.
+     */
+    fun fetchLatestVersions(mirror: String): Map<String, String> {
+        val arch = termuxArch()
+            ?: throw RepoException("unsupported device ABI: ${Build.SUPPORTED_ABIS.joinToString()}")
+        val index = fetchIndex(mirror.trimEnd('/'), arch)
+        val out = HashMap<String, String>()
+        for (pkg in RuntimePackage.ALL) {
+            index[pkg.packageName]?.let { out[pkg.packageName] = it.version }
+        }
+        return out
     }
 
     /** Breadth-first dependency closure over several roots. */

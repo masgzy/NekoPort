@@ -22,11 +22,13 @@ object MariaDbController {
         File(dataDir(context), "mysql").isDirectory
 
     /**
-     * Bootstraps the data directory once. The upstream script is a bash
-     * script whose shebang was rewritten at install time to our own prefix;
-     * we run it with our bundled bash when available (Android's mksh cannot
-     * parse bash syntax and failed silently before). The bootstrap can take
-     * tens of seconds on first run, so a hard timeout guards against hangs.
+     * Bootstraps the data directory once. The upstream script needs a POSIX
+     * shell: we prefer our own bash, then our bundled bin/sh (dash, installed
+     * with the runtime since alpha.3), and only fall back to Android's
+     * /system/bin/sh (mksh). Executing the script itself used to fail with
+     * error=2 when neither bundled interpreter existed, because the patched
+     * shebang pointed at a non-existent bin/sh. The bootstrap can take tens
+     * of seconds on first run, so a hard timeout guards against hangs.
      * Must be called from a background thread.
      */
     fun initialize(context: Context): Result<Unit> {
@@ -37,19 +39,18 @@ object MariaDbController {
             ?: return Result.failure(IllegalStateException("mariadb-install-db not found"))
 
         val datadir = dataDir(context).apply { mkdirs() }
-        val bash = File(prefix, "bin/bash")
-        val cmd = if (bash.exists()) {
-            listOf(
-                bash.canonicalPath, script.canonicalPath,
-                "--datadir=${datadir.canonicalPath}",
-                "--skip-name-resolve",
-            )
-        } else {
-            listOf(
-                script.canonicalPath,
-                "--datadir=${datadir.canonicalPath}",
-                "--skip-name-resolve",
-            )
+        val scriptArgs = listOf(
+            script.canonicalPath,
+            "--datadir=${datadir.canonicalPath}",
+            "--skip-name-resolve",
+        )
+        val cmd = when {
+            File(prefix, "bin/bash").exists() ->
+                listOf(File(prefix, "bin/bash").canonicalPath) + scriptArgs
+            File(prefix, "bin/sh").exists() ->
+                listOf(File(prefix, "bin/sh").canonicalPath) + scriptArgs
+            else ->
+                listOf("/system/bin/sh") + scriptArgs
         }
         AppLog.i(TAG, "bootstrapping datadir: ${cmd.joinToString(" ")}")
         return runCatching {
@@ -93,9 +94,10 @@ object MariaDbController {
 
     /**
      * Starts mariadbd with the effective (user-editable when present) my.cnf.
-     * `--defaults-file` must be the first argument.
+     * `--defaults-file` must be the first argument. Returns null on success,
+     * otherwise a readable failure reason (launch-log tail) for the UI.
      */
-    fun start(context: Context, maria: MariaConfig) {
+    fun start(context: Context, maria: MariaConfig): String? {
         ConfigWriter.writeMariaCnf(context, maria, dataDir(context))
         val cnf = ConfigWriter.effectiveConf(ConfigWriter.mariaCnfAuto(context))
         val log = File(TermuxRuntime.logsDir(context), "mariadb-launch.log")
@@ -104,14 +106,17 @@ object MariaDbController {
             listOf("--defaults-file=${cnf.canonicalPath}"),
             log, TermuxRuntime.runtimeRoot(context),
         )
-        if (ProcessController.awaitPort(maria.port, timeoutMs = 20000)) {
+        return if (ProcessController.awaitPort(maria.port, timeoutMs = 20000)) {
             AppLog.i(TAG, "MariaDB up on port ${maria.port}")
             // Termux initializes root@localhost with unix_socket auth; switch
             // it to the classic empty password so PHP apps can connect over
             // TCP from the same sandbox uid (KSWEB-compatible behavior).
             setRootEmptyPassword(context)
+            null
         } else {
-            AppLog.e(TAG, "MariaDB did not open port ${maria.port}; see logs")
+            val tail = ProcessController.logTail(log)
+            AppLog.e(TAG, "MariaDB did not open port ${maria.port}" + if (tail.isBlank()) "; no launch output" else ":\n$tail")
+            tail.ifBlank { null }
         }
     }
 
