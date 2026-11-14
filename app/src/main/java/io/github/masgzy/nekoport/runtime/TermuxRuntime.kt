@@ -168,6 +168,25 @@ object TermuxRuntime {
         return exe.exists()
     }
 
+    /**
+     * Full, untruncated `binary --version` output (may be multi-line), used
+     * by the "version details" row. Returns null when the binary is absent
+     * or the probe fails. Must be called off the main thread.
+     */
+    fun rawVersionOutput(context: Context, pkg: RuntimePackage): String? {
+        val exe = File(prefixDir(context), "bin/${pkg.binary}")
+        if (!exe.exists()) return null
+        return runCatching {
+            exe.setExecutable(true, false)
+            val proc = ProcessBuilder(exe.canonicalPath, pkg.versionArg)
+                .redirectErrorStream(true)
+                .start()
+            val text = proc.inputStream.bufferedReader().readText().trim()
+            proc.waitFor()
+            text.ifBlank { null }
+        }.getOrNull()
+    }
+
     // ------------------------------------------------------------------
     // Install / uninstall
     // ------------------------------------------------------------------
@@ -180,11 +199,15 @@ object TermuxRuntime {
 
     /** Installs every runtime package (and dependencies) that is missing.
      *  When [roots] is given, only the closure of those components is fetched
-     *  (per-component install); the default installs/updates everything. */
+     *  (per-component install); the default installs/updates everything.
+     *  [force] re-downloads and re-extracts packages that are already
+     *  installed - this is how "update" works (Termux packages always carry
+     *  the newest upstream build, so re-extracting = updating). */
     suspend fun install(
         context: Context,
         mirror: String,
         roots: List<RuntimePackage>? = null,
+        force: Boolean = false,
         onProgress: suspend (Progress) -> Unit,
     ): Result<Map<RuntimePackage, String>> = withContext(Dispatchers.IO) {
         try {
@@ -207,7 +230,7 @@ object TermuxRuntime {
             if (closure.isEmpty()) throw RepoException("runtime packages not found in index")
 
             val alreadyInstalled = readInstalledState(context).packages.keys
-            val missing = closure.filter { it.name !in alreadyInstalled }
+            val missing = closure.filter { force || it.name !in alreadyInstalled }
             AppLog.i(TAG, "dependency closure: ${closure.joinToString { it.name }}")
             val total = missing.size
             val manifest = HashMap<String, List<String>>()

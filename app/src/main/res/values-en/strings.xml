@@ -23,6 +23,7 @@
     <string name="dashboard_sites">Sites</string>
     <string name="dashboard_go_sites">Create a site</string>
     <string name="dashboard_open_browser">Open the site in a browser</string>
+    <string name="dashboard_open_files_manager">Open the site folder</string>
     <string name="dashboard_copied">Address copied</string>
     <string name="dashboard_no_browser">No browser available</string>
     <string name="dashboard_open_folder">Open folder</string>
@@ -85,13 +86,18 @@
     <string name="runtime_reinstall">Reinstall / update components</string>
     <string name="runtime_uninstall">Uninstall components</string>
     <string name="runtime_uninstall_confirm">All services will stop and cannot start until you reinstall. Uninstall now?</string>
-    <string name="runtime_install_one">Install</string>
-    <string name="runtime_update_one">Update</string>
+    <string name="runtime_batch_install">Install all</string>
+    <string name="runtime_batch_update">Update all</string>
+    <string name="runtime_batch_uninstall">Uninstall all</string>
+    <string name="runtime_batch_uninstall_confirm">All services will stop and every server component will be removed (the MariaDB data directory is kept). Uninstall now?</string>
     <string name="runtime_uninstall_one">Uninstall %1$s</string>
     <string name="runtime_uninstall_one_confirm">The component\'s processes will be stopped and its files removed (shared dependencies and the MariaDB data directory are kept). Uninstall %1$s?</string>
     <string name="runtime_install_failed">Install failed: %1$s</string>
     <string name="runtime_not_installed">Not installed</string>
     <string name="runtime_note">Binaries come from the Termux repository (native aarch64/arm/x86_64 builds), installed into the app private directory with hardened configs. First install needs network access, roughly 50-100 MB.</string>
+    <string name="runtime_component_install">Install this component</string>
+    <string name="runtime_component_update">Update this component</string>
+    <string name="runtime_component_uninstall">Uninstall this component</string>
 
     <!-- Mirrors -->
     <string name="mirror_title">Download mirror</string>
@@ -100,6 +106,8 @@
     <string name="mirror_custom">Custom mirror</string>
     <string name="mirror_custom_summary">Enter the Termux repository root (dists/stable/…)</string>
     <string name="mirror_url">Mirror URL</string>
+    <string name="mirror_current">Current mirror: %1$s</string>
+    <string name="mirror_invalid">The URL must start with http:// or https://</string>
 
     <!-- MariaDB -->
     <string name="maria_component_title">MySQL (MariaDB)</string>
@@ -114,6 +122,7 @@
     <string name="maria_connection_remote">LAN connections are allowed; other devices can connect via the device IP</string>
     <string name="maria_settings">Settings</string>
     <string name="maria_version">MariaDB version</string>
+    <string name="maria_version_title">MariaDB version details</string>
     <string name="maria_allow_remote">Allow LAN connections</string>
     <string name="maria_allow_remote_summary">Binds 127.0.0.1 by default; enabling binds all interfaces and exposes the database to your LAN</string>
     <string name="maria_port">MySQL port</string>
@@ -160,9 +169,15 @@
     <string name="ftp_root_hint">The FTP root is the sites root (sites/), letting you manage every site\'s files after login</string>
     <string name="ftp_open_log">Log file</string>
     <string name="ftp_account">FTP account</string>
+    <string name="ftp_accounts_list">Accounts</string>
+    <string name="ftp_accounts_summary">Multiple FTP accounts are supported, each with its own username and password; leave the root empty to use the sites root</string>
+    <string name="ftp_add_account">Add account</string>
+    <string name="ftp_delete_account">Delete this account</string>
+    <string name="ftp_account_root">Account root (absolute path, empty = sites root)</string>
     <string name="ftp_username">Username</string>
     <string name="ftp_password">Password</string>
     <string name="ftp_generate">Generate random password</string>
+    <string name="ftp_account_invalid">Account names may only contain letters, digits, dots, underscores and hyphens, and must be unique</string>
     <string name="ftp_ports">Ports</string>
     <string name="ftp_port">FTP port</string>
     <string name="ftp_pasv_start">Passive port start</string>
@@ -197,6 +212,8 @@
     <string name="logs_filter_error">Errors</string>
     <string name="logs_filter_info">Info</string>
     <string name="logs_clear">Clear logs</string>
+    <string name="logs_copy">Copy logs</string>
+    <string name="logs_copied">Logs copied to clipboard</string>
     <string name="logs_empty">No logs yet</string>
 
     <!-- Editor -->

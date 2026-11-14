@@ -12,6 +12,7 @@ import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import io.github.masgzy.nekoport.MainActivity
 import io.github.masgzy.nekoport.R
+import io.github.masgzy.nekoport.core.AppLog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -64,9 +65,27 @@ class ServerService : Service() {
 
     private fun startForegroundCompat() {
         val manager = ServerManager.get(this)
-        val notification = buildNotification(manager)
+        // buildNotification formats user-visible strings; a bad format spec
+        // must never take the app down with it.
+        val notification = runCatching { buildNotification(manager) }.getOrElse {
+            AppLog.w("Service", "notification build failed: ${it.message}")
+            NotificationCompat.Builder(this, CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_notification)
+                .setContentTitle(getString(R.string.notification_running_title))
+                .setOngoing(true)
+                .setSilent(true)
+                .build()
+        }
         if (Build.VERSION.SDK_INT >= 29) {
-            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+            try {
+                startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+            } catch (e: Exception) {
+                // Some OEM skins reject the typed call even with the manifest
+                // declaration; fall back to the untyped variant instead of
+                // crashing (FTP / MySQL toggles call this on every start).
+                AppLog.w("Service", "typed startForeground failed: ${e.message}")
+                startForeground(NOTIFICATION_ID, notification)
+            }
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }

@@ -63,6 +63,24 @@ data class SiteConfig(
     }
 }
 
+/** One FTP virtual account (pure-ftpd pure-pw user). */
+@Serializable
+data class FtpAccount(
+    val username: String,
+    val password: String,
+    /**
+     * Per-account FTP root. Empty = the shared sites root (sites/), so the
+     * account can manage every site like before; an absolute path (e.g.
+     * /sdcard/htdocs) chroots the account to that directory.
+     */
+    val root: String = "",
+) {
+    companion object {
+        fun nameValid(name: String): Boolean =
+            name.isNotEmpty() && name.length <= 32 && name.all { it.isLetterOrDigit() || it in "._-" }
+    }
+}
+
 @Serializable
 data class FtpConfig(
     val enabled: Boolean = false,
@@ -71,9 +89,25 @@ data class FtpConfig(
     val password: String = "changeme-neko",
     /** Starting port of the passive range (start..start+32). */
     val passivePortStart: Int = 50000,
+    /**
+     * Additional FTP accounts. Introduced in 0.1.0-alpha.2; configs saved by
+     * older versions only have username/password, which keeps working as the
+     * primary account (see [effectiveAccounts]).
+     */
+    val accounts: List<FtpAccount> = emptyList(),
 ) {
     companion object {
         fun isPortValid(port: Int): Boolean = port in 1024..65535
+    }
+
+    /**
+     * Every account that should exist in pure-ftpd's user database: the
+     * legacy primary account plus the multi-account list, deduplicated by
+     * username (first wins). Older single-account configs keep working.
+     */
+    fun effectiveAccounts(): List<FtpAccount> {
+        val primary = FtpAccount(username = username, password = password)
+        return (listOf(primary) + accounts).distinctBy { it.username }
     }
 }
 

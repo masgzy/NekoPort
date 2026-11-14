@@ -33,8 +33,8 @@ import kotlinx.coroutines.launch
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.rememberCoroutineScope
 import top.yukonga.miuix.kmp.basic.Card
-import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
+import io.github.masgzy.nekoport.ui.component.NekoSmallTitle
 import io.github.masgzy.nekoport.ui.component.NekoTextButton
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
@@ -69,7 +69,7 @@ fun ManagePage(contentPadding: PaddingValues) {
         modifier = Modifier.fillMaxSize(),
     ) {
         item(key = "engines-header") {
-            SmallTitle(text = stringResource(R.string.manage_engines))
+            NekoSmallTitle(text = stringResource(R.string.manage_engines))
         }
         item(key = "engine-lighttpd") {
             EnginePanel(Engine.LIGHTTPD)
@@ -84,15 +84,15 @@ fun ManagePage(contentPadding: PaddingValues) {
             PhpPanel()
         }
         item(key = "mysql") {
-            SmallTitle(text = stringResource(R.string.maria_component_title))
+            NekoSmallTitle(text = stringResource(R.string.maria_component_title))
             MariaPanel()
         }
         item(key = "ftp") {
-            SmallTitle(text = stringResource(R.string.manage_ftp))
+            NekoSmallTitle(text = stringResource(R.string.manage_ftp))
             FtpPanel()
         }
         item(key = "cron") {
-            SmallTitle(text = stringResource(R.string.manage_cron))
+            NekoSmallTitle(text = stringResource(R.string.manage_cron))
             CronPanel()
         }
     }

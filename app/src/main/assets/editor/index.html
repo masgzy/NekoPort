@@ -124,8 +124,12 @@ var Editor = {
 
   loadDoc: function (id, content, modeName, readOnly) {
     if (docs[id]) { Editor.switchDoc(id); return; }
-    var mode;
-    try { mode = modeName ? CodeMirror.findModeByName(modeName) || modeName : null; } catch (e) { mode = null; }
+    // Pass the mode NAME straight through: CodeMirror resolves it against the
+    // modes registered by defineMode() (all mode files are preloaded below).
+    // The previous findModeByName() call threw (the meta addon is not loaded)
+    // and the catch block silently fell back to null = plain text, which is
+    // why .cnf / .conf / .ini files had no highlighting at all.
+    var mode = modeName || null;
     var doc = CodeMirror.Doc(content, mode);
     docs[id] = { doc: doc, savedGen: doc.changeGeneration(), readOnly: !!readOnly };
     Editor.switchDoc(id);

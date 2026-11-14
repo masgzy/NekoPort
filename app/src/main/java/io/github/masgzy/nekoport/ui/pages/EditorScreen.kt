@@ -864,7 +864,6 @@ private fun SymbolBar(
 
 private fun modeFor(target: EditorTarget): String {
     val name = target.file.name.lowercase()
-    val title = target.title.lowercase()
     return when {
         name.endsWith(".php") -> "php"
         name.endsWith(".html") || name.endsWith(".htm") -> "htmlmixed"
@@ -873,8 +872,14 @@ private fun modeFor(target: EditorTarget): String {
         name.endsWith(".js") || name.endsWith(".mjs") || name.endsWith(".json") -> "javascript"
         name.endsWith(".sh") || name.endsWith(".bash") -> "shell"
         name.endsWith(".yaml") || name.endsWith(".yml") -> "yaml"
+        // INI-style files: MariaDB's my.cnf, php.ini, php-fpm.conf and friends
+        // use [section] + key = value syntax, so the properties mode is the
+        // correct highlighting for them (not nginx).
+        name == "php-fpm.conf" || name.endsWith(".cnf") || name.endsWith(".ini") -> "properties"
+        // Server configs that genuinely follow the nginx-style directive
+        // grammar (nginx.conf, lighttpd.conf, httpd.conf, vhosts).
         name.endsWith(".conf") || name.endsWith(".vhost") -> "nginx"
-        else -> "properties" // .ini / .cnf / .log / .env / .properties
+        else -> "properties" // .log / .env / .properties / everything else
     }
 }
 

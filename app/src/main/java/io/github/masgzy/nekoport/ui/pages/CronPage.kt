@@ -25,8 +25,8 @@ import io.github.masgzy.nekoport.runtime.ConfigWriter
 import io.github.masgzy.nekoport.ui.OverlayBus
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.DropdownItem
-import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
+import io.github.masgzy.nekoport.ui.component.NekoSmallTitle
 import io.github.masgzy.nekoport.ui.component.NekoTextButton
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
@@ -63,7 +63,7 @@ fun CronPanel() {
         }
 
         // Logging
-        SmallTitle(text = stringResource(R.string.cron_logs))
+        NekoSmallTitle(text = stringResource(R.string.cron_logs))
         Card {
             SwitchPreference(
                 title = stringResource(R.string.cron_log_enabled),
@@ -88,7 +88,7 @@ fun CronPanel() {
         }
 
         // Task list
-        SmallTitle(
+        NekoSmallTitle(
             text = stringResource(R.string.cron_tasks) +
                 " (${cron.tasks.count { it.enabled }}/${cron.tasks.size})",
         )

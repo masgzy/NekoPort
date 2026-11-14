@@ -23,6 +23,7 @@
     <string name="dashboard_sites">站点</string>
     <string name="dashboard_go_sites">去创建站点</string>
     <string name="dashboard_open_browser">在浏览器中打开站点</string>
+    <string name="dashboard_open_files_manager">进入站点文件夹</string>
     <string name="dashboard_copied">地址已复制</string>
     <string name="dashboard_no_browser">未找到可用的浏览器</string>
     <string name="dashboard_open_folder">打开文件夹</string>
@@ -85,13 +86,18 @@
     <string name="runtime_reinstall">重新安装 / 更新组件</string>
     <string name="runtime_uninstall">卸载组件</string>
     <string name="runtime_uninstall_confirm">卸载后所有服务将停止且无法启动，直到重新安装。确定卸载？</string>
-    <string name="runtime_install_one">安装</string>
-    <string name="runtime_update_one">更新</string>
+    <string name="runtime_batch_install">全部安装</string>
+    <string name="runtime_batch_update">全部更新</string>
+    <string name="runtime_batch_uninstall">全部卸载</string>
+    <string name="runtime_batch_uninstall_confirm">将停止全部服务并删除所有服务器组件（MariaDB 数据目录保留）。确定卸载？</string>
     <string name="runtime_uninstall_one">卸载 %1$s</string>
     <string name="runtime_uninstall_one_confirm">将停止该组件的进程并删除其文件（共享依赖保留；MariaDB 数据目录保留）。确定卸载 %1$s？</string>
     <string name="runtime_install_failed">安装失败：%1$s</string>
     <string name="runtime_not_installed">未安装</string>
     <string name="runtime_note">运行时来自 Termux 软件源（aarch64/arm/x86_64 原生编译），安装于应用私有目录，配置文件已内置安全加固。首次安装需要联网，约 50-100 MB。</string>
+    <string name="runtime_component_install">安装该组件</string>
+    <string name="runtime_component_update">更新该组件</string>
+    <string name="runtime_component_uninstall">卸载该组件</string>
 
     <!-- Mirrors -->
     <string name="mirror_title">软件源镜像</string>
@@ -100,6 +106,8 @@
     <string name="mirror_custom">自定义地址</string>
     <string name="mirror_custom_summary">输入 Termux 软件源根地址（dists/stable/…）</string>
     <string name="mirror_url">镜像地址</string>
+    <string name="mirror_current">当前源：%1$s</string>
+    <string name="mirror_invalid">地址需以 http:// 或 https:// 开头</string>
 
     <!-- MariaDB -->
     <string name="maria_component_title">MySQL (MariaDB)</string>
@@ -114,6 +122,7 @@
     <string name="maria_connection_remote">已允许局域网连接，局域网内设备可通过设备 IP 连接</string>
     <string name="maria_settings">设置</string>
     <string name="maria_version">MariaDB 版本</string>
+    <string name="maria_version_title">MariaDB 版本详情</string>
     <string name="maria_allow_remote">允许局域网连接</string>
     <string name="maria_allow_remote_summary">默认仅监听 127.0.0.1；开启后监听所有网卡，数据库将暴露给局域网，请注意安全</string>
     <string name="maria_port">MySQL 端口</string>
@@ -160,9 +169,15 @@
     <string name="ftp_root_hint">FTP 根目录为站点根目录（sites/），登录后可直接管理全部站点文件</string>
     <string name="ftp_open_log">日志文件</string>
     <string name="ftp_account">FTP 账户</string>
+    <string name="ftp_accounts_list">账户列表</string>
+    <string name="ftp_accounts_summary">支持多个 FTP 账户，各自独立的用户名与密码；根目录留空时使用站点根目录</string>
+    <string name="ftp_add_account">添加账户</string>
+    <string name="ftp_delete_account">删除该账户</string>
+    <string name="ftp_account_root">账户根目录（绝对路径，留空使用站点根目录）</string>
     <string name="ftp_username">用户名</string>
     <string name="ftp_password">密码</string>
     <string name="ftp_generate">生成随机密码</string>
+    <string name="ftp_account_invalid">账户名只能包含字母、数字、点、下划线和连字符，且不能重复</string>
     <string name="ftp_ports">端口设置</string>
     <string name="ftp_port">FTP 端口</string>
     <string name="ftp_pasv_start">被动模式起始端口</string>
@@ -197,6 +212,8 @@
     <string name="logs_filter_error">错误</string>
     <string name="logs_filter_info">信息</string>
     <string name="logs_clear">清空日志</string>
+    <string name="logs_copy">复制日志</string>
+    <string name="logs_copied">日志已复制到剪贴板</string>
     <string name="logs_empty">暂无日志</string>
 
     <!-- Editor -->

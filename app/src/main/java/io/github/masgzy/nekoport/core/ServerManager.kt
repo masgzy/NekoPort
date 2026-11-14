@@ -376,9 +376,11 @@ class ServerManager private constructor(private val context: Context) {
     }
 
     /**
-     * Creates/updates the pure-ftpd virtual user with the configured
-     * credentials. The virtual user maps to the app sandbox uid, so the FTP
-     * sandbox is exactly the app sandbox (no privilege escalation).
+     * Creates/updates every configured pure-ftpd virtual account with its
+     * credentials. Virtual users map to the app sandbox uid, so the FTP
+     * sandbox is exactly the app sandbox (no privilege escalation). The
+     * primary (legacy) account shares the sites root; extra accounts may
+     * chroot to their own directory.
      *
      * Every `pure-pw` invocation gets a hard timeout: the process asks for
      * the password on stdin, and if it ever waits for input again the old
@@ -388,25 +390,30 @@ class ServerManager private constructor(private val context: Context) {
         val uid = Process.myUid().toString()
         val ftpRoot = sitesRoot.canonicalPath
         val purePw = ProcessController.binary(context, "pure-pw")
-        val name = ftp.username.filter { it.isLetterOrDigit() || it in "._-" }.ifEmpty { "neko" }
+        val accounts = ftp.effectiveAccounts()
 
         runCatching {
-            val (out, rc) = runPurePw(
-                purePw, listOf(
-                    "useradd", name,
-                    "-u", uid, "-g", uid, "-d", ftpRoot,
-                    "-f", passwdFile.canonicalPath,
-                ),
-                ftp.password,
-            )
-            if (rc != 0) {
-                AppLog.w("Manager", "pure-pw useradd rc=$rc: $out")
-                // useradd fails if the user exists; try passwd update, then mkdb.
-                val (out2, rc2) = runPurePw(
-                    purePw, listOf("passwd", name, "-f", passwdFile.canonicalPath),
-                    ftp.password,
+            for (account in accounts) {
+                val name = account.username.filter { it.isLetterOrDigit() || it in "._-" }.ifEmpty { "neko" }
+                val home = account.root.trim().ifEmpty { ftpRoot }
+                val homeDir = File(home).apply { mkdirs() }
+                val (out, rc) = runPurePw(
+                    purePw, listOf(
+                        "useradd", name,
+                        "-u", uid, "-g", uid, "-d", homeDir.canonicalPath,
+                        "-f", passwdFile.canonicalPath,
+                    ),
+                    account.password,
                 )
-                if (rc2 != 0) throw Exception("pure-pw passwd rc=$rc2: $out2")
+                if (rc != 0) {
+                    AppLog.w("Manager", "pure-pw useradd $name rc=$rc: $out")
+                    // useradd fails if the user exists; try passwd update, then mkdb.
+                    val (out2, rc2) = runPurePw(
+                        purePw, listOf("passwd", name, "-f", passwdFile.canonicalPath),
+                        account.password,
+                    )
+                    if (rc2 != 0) throw Exception("pure-pw passwd $name rc=$rc2: $out2")
+                }
             }
             val (mkdbOut, mkdbRc) = runPurePw(
                 purePw, listOf("mkdb", pdbFile.canonicalPath, "-f", passwdFile.canonicalPath),
@@ -546,7 +553,8 @@ class ServerManager private constructor(private val context: Context) {
         ).joinToString("|")
 
     private fun ftpSignature(ftp: FtpConfig): String =
-        "${ftp.username}|${ftp.password}|${ftp.port}|${ftp.passivePortStart}"
+        (ftp.effectiveAccounts().joinToString(";") { "${it.username}|${it.password}|${it.root}" } +
+            "|${ftp.port}|${ftp.passivePortStart}")
 
     private fun publish() {
         val cfg = _config.value

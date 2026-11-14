@@ -26,12 +26,13 @@ import io.github.masgzy.nekoport.runtime.ConfigWriter
 import io.github.masgzy.nekoport.runtime.RuntimePackage
 import io.github.masgzy.nekoport.runtime.TermuxRuntime
 import io.github.masgzy.nekoport.ui.OverlayBus
+import io.github.masgzy.nekoport.ui.component.NekoSmallTitle
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Card
-import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
 import io.github.masgzy.nekoport.ui.component.NekoTextButton
 import top.yukonga.miuix.kmp.basic.TextField
+import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -53,6 +54,7 @@ fun MariaPanel() {
     var port by remember(maria.port) { mutableStateOf(TextFieldValue(maria.port.toString())) }
     var installProgress by remember { mutableStateOf<String?>(null) }
     var installError by remember { mutableStateOf<String?>(null) }
+    var versionDetails by remember { mutableStateOf<String?>(null) }
 
     val mariaVersion = state.runtime.versions[RuntimePackage.MARIADB]
     val mariaInstalled = remember(state.runtime.versions) {
@@ -146,7 +148,7 @@ fun MariaPanel() {
 
             // Connection info
             if (state.mariaRunning) {
-                SmallTitle(text = stringResource(R.string.maria_connection))
+                NekoSmallTitle(text = stringResource(R.string.maria_connection))
                 Card {
                     ArrowPreference(
                         title = "127.0.0.1:${maria.port}",
@@ -165,13 +167,20 @@ fun MariaPanel() {
             }
 
             // Settings
-            SmallTitle(text = stringResource(R.string.maria_settings))
+            NekoSmallTitle(text = stringResource(R.string.maria_settings))
             Card {
                 if (mariaVersion != null) {
                     ArrowPreference(
                         title = stringResource(R.string.maria_version),
                         summary = mariaVersion,
-                        onClick = { },
+                        onClick = {
+                            // Full `mariadbd --version` output in a dialog;
+                            // the row previously had a no-op click handler.
+                            scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                                versionDetails = TermuxRuntime.rawVersionOutput(context, RuntimePackage.MARIADB)
+                                    ?: "mariadbd --version failed"
+                            }
+                        },
                     )
                 }
                 SwitchPreference(
@@ -226,7 +235,7 @@ fun MariaPanel() {
             }
 
             // Files
-            SmallTitle(text = stringResource(R.string.maria_files))
+            NekoSmallTitle(text = stringResource(R.string.maria_files))
             Card {
                 ArrowPreference(
                     title = stringResource(R.string.maria_edit_conf),
@@ -256,6 +265,29 @@ fun MariaPanel() {
                             ),
                         )
                     },
+                )
+            }
+        }
+    }
+
+    // Version details dialog (tapping the version row).
+    versionDetails?.let { details ->
+        OverlayDialog(
+            show = true,
+            title = stringResource(R.string.maria_version_title),
+            onDismissRequest = { versionDetails = null },
+        ) {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = details,
+                    color = MiuixTheme.colorScheme.onSurface,
+                    style = MiuixTheme.textStyles.subtitle,
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp),
+                )
+                NekoTextButton(
+                    text = stringResource(R.string.dialog_ok),
+                    onClick = { versionDetails = null },
+                    modifier = Modifier.fillMaxWidth(),
                 )
             }
         }

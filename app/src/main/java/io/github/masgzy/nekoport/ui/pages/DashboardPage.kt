@@ -1,8 +1,5 @@
 package io.github.masgzy.nekoport.ui.pages
 
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
@@ -49,18 +46,17 @@ import io.github.masgzy.nekoport.ui.AppRoot
 import io.github.masgzy.nekoport.ui.NekoTab
 import io.github.masgzy.nekoport.ui.NekoNav
 import io.github.masgzy.nekoport.ui.OverlayBus
+import io.github.masgzy.nekoport.ui.component.NekoSmallTitle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
 import io.github.masgzy.nekoport.ui.component.NekoTextButton
 import io.github.masgzy.nekoport.ui.component.animation.pressFeedback
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.ChevronForward
-import top.yukonga.miuix.kmp.icon.extended.Link
-import top.yukonga.miuix.kmp.icon.extended.More
+import top.yukonga.miuix.kmp.icon.extended.Folder
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -107,7 +103,7 @@ fun DashboardPage(contentPadding: PaddingValues) {
 
         // Component status: one row per bundled server.
         item {
-            SmallTitle(text = stringResource(R.string.dashboard_components))
+            NekoSmallTitle(text = stringResource(R.string.dashboard_components))
             Card {
                 ComponentRow(
                     pkg = RuntimePackage.LIGHTTPD,
@@ -156,7 +152,7 @@ fun DashboardPage(contentPadding: PaddingValues) {
 
         // Per-site cards: address + folder + shortcuts.
         item {
-            SmallTitle(text = stringResource(R.string.dashboard_sites))
+            NekoSmallTitle(text = stringResource(R.string.dashboard_sites))
         }
         if (state.sites.isEmpty()) {
             item {
@@ -312,37 +308,32 @@ private fun DashboardSiteCard(runtime: SiteRuntime) {
                 )
             }
             Icon(
-                imageVector = MiuixIcons.Link,
-                contentDescription = stringResource(R.string.dashboard_open_browser),
+                imageVector = MiuixIcons.Folder,
+                contentDescription = stringResource(R.string.dashboard_open_files_manager),
                 tint = colorScheme.primary,
                 modifier = Modifier
                     .size(22.dp)
                     .clip(RoundedCornerShape(6.dp))
-                    .clickable {
-                        runCatching {
-                            context.startActivity(
-                                Intent(Intent.ACTION_VIEW, Uri.parse(url)),
-                            )
-                        }.onFailure {
-                            Toast.makeText(
-                                context,
-                                context.getString(R.string.dashboard_no_browser),
-                                Toast.LENGTH_SHORT,
-                            ).show()
-                        }
-                    }
+                    .clickable { NekoNav.openFiles(manager.siteDocRoot(site)) }
                     .padding(2.dp),
             )
         }
 
-        // Address row (tap = copy).
+        // Address row (tap = open in browser; the folder icon above enters
+        // the built-in file manager at the site root).
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable {
-                    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    cm.setPrimaryClip(ClipData.newPlainText("url", url))
-                    Toast.makeText(context, context.getString(R.string.dashboard_copied), Toast.LENGTH_SHORT).show()
+                    runCatching {
+                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                    }.onFailure {
+                        Toast.makeText(
+                            context,
+                            context.getString(R.string.dashboard_no_browser),
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    }
                 }
                 .padding(horizontal = 16.dp, vertical = 4.dp),
         ) {

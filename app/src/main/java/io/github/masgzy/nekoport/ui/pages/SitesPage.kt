@@ -7,11 +7,14 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -23,6 +26,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
@@ -271,13 +275,20 @@ private fun SiteEditorDialog(site: SiteConfig?, onDismiss: () -> Unit) {
         } else null,
         onDismissRequest = onDismiss,
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        // The dialog content grows with the PHP options; without scrolling it
+        // overflowed the screen and the save button became unreachable.
+        Column(
+            modifier = Modifier
+                .heightIn(max = (LocalConfiguration.current.screenHeightDp * 0.62f).dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
             if (isNew) {
                 TextField(
                     value = name,
                     onValueChange = { name = it },
                     label = stringResource(R.string.site_name),
-                    useLabelAsPlaceholder = true,
+                    useLabelAsPlaceholder = false,
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -286,7 +297,7 @@ private fun SiteEditorDialog(site: SiteConfig?, onDismiss: () -> Unit) {
                 value = port,
                 onValueChange = { port = it },
                 label = stringResource(R.string.site_port),
-                useLabelAsPlaceholder = true,
+                useLabelAsPlaceholder = false,
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.fillMaxWidth(),
@@ -301,7 +312,7 @@ private fun SiteEditorDialog(site: SiteConfig?, onDismiss: () -> Unit) {
                 value = docRoot,
                 onValueChange = { docRoot = it },
                 label = stringResource(R.string.site_docroot),
-                useLabelAsPlaceholder = true,
+                useLabelAsPlaceholder = false,
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -351,7 +362,7 @@ private fun SiteEditorDialog(site: SiteConfig?, onDismiss: () -> Unit) {
                 value = indexFiles,
                 onValueChange = { indexFiles = it },
                 label = stringResource(R.string.site_index_files),
-                useLabelAsPlaceholder = true,
+                useLabelAsPlaceholder = false,
                 modifier = Modifier.fillMaxWidth(),
             )
             if (enablePhp) {
@@ -364,7 +375,7 @@ private fun SiteEditorDialog(site: SiteConfig?, onDismiss: () -> Unit) {
                     value = phpDenyDirs,
                     onValueChange = { phpDenyDirs = it },
                     label = stringResource(R.string.site_php_deny_dirs),
-                    useLabelAsPlaceholder = true,
+                    useLabelAsPlaceholder = false,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Text(
@@ -376,7 +387,7 @@ private fun SiteEditorDialog(site: SiteConfig?, onDismiss: () -> Unit) {
                     value = phpExtensions,
                     onValueChange = { phpExtensions = it },
                     label = stringResource(R.string.site_php_extensions),
-                    useLabelAsPlaceholder = true,
+                    useLabelAsPlaceholder = false,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 if (!state.runtime.versions.containsKey(

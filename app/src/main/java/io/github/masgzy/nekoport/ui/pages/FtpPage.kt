@@ -13,6 +13,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -21,16 +22,16 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import io.github.masgzy.nekoport.NekoApp
 import io.github.masgzy.nekoport.R
+import io.github.masgzy.nekoport.core.FtpAccount
 import io.github.masgzy.nekoport.core.FtpConfig
 import io.github.masgzy.nekoport.core.NetUtils
 import io.github.masgzy.nekoport.core.ServerService
 import io.github.masgzy.nekoport.runtime.TermuxRuntime
 import io.github.masgzy.nekoport.ui.OverlayBus
+import io.github.masgzy.nekoport.ui.component.NekoTextButton
 import kotlinx.coroutines.delay
 import top.yukonga.miuix.kmp.basic.Card
-import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
-import io.github.masgzy.nekoport.ui.component.NekoTextButton
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
@@ -41,6 +42,12 @@ import java.security.SecureRandom
  * FTP management panel (Pure-FTPd), embedded in the Manage tab. The
  * surrounding ManagePage owns scrolling; the address list refreshes on a
  * lightweight local-only timer.
+ *
+ * Supports multiple accounts: the legacy primary account (username/password
+ * fields) plus extra accounts, each with an optional chroot directory.
+ * Text fields keep their label visible above the value (the previous
+ * label-as-placeholder style made it impossible to tell which field was
+ * which once a value was entered).
  */
 @Composable
 fun FtpPanel() {
@@ -52,10 +59,13 @@ fun FtpPanel() {
     val context = LocalContext.current
 
     var port by remember(ftp.port) { mutableStateOf(TextFieldValue(ftp.port.toString())) }
+    var pasvStart by remember(ftp.passivePortStart) { mutableStateOf(TextFieldValue(ftp.passivePortStart.toString())) }
+    // Extra accounts (editable copies); the primary account keeps the legacy fields.
+    var extraAccounts by remember(ftp.accounts) { mutableStateOf(ftp.accounts.map { it }) }
     var username by remember(ftp.username) { mutableStateOf(TextFieldValue(ftp.username)) }
     var password by remember(ftp.password) { mutableStateOf(TextFieldValue(ftp.password)) }
-    var pasvStart by remember(ftp.passivePortStart) { mutableStateOf(TextFieldValue(ftp.passivePortStart.toString())) }
     var addresses by remember { mutableStateOf(listOf<String>()) }
+    var errorText by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
         while (true) {
@@ -90,7 +100,6 @@ fun FtpPanel() {
 
         // Connection info
         if (state.ftpRunning) {
-            SmallTitle(text = stringResource(R.string.ftp_connection))
             Card {
                 ArrowPreference(
                     title = "ftp://${ftp.username}@${addresses.firstOrNull() ?: "127.0.0.1"}:${ftp.port}/",
@@ -130,72 +139,90 @@ fun FtpPanel() {
             )
         }
 
-        // Account
-        SmallTitle(text = stringResource(R.string.ftp_account))
+        // Accounts
         Card {
-            TextField(
+            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                Text(
+                    text = stringResource(R.string.ftp_accounts_list),
+                    color = colorScheme.onSurface,
+                    style = MiuixTheme.textStyles.title3,
+                )
+                Text(
+                    text = stringResource(R.string.ftp_accounts_summary),
+                    color = colorScheme.onSurfaceVariantSummary,
+                    style = MiuixTheme.textStyles.subtitle,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
+            // Primary (legacy) account.
+            LabeledField(
+                label = stringResource(R.string.ftp_username),
                 value = username,
                 onValueChange = { username = it },
-                label = stringResource(R.string.ftp_username),
-                useLabelAsPlaceholder = true,
-                singleLine = true,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                keyboardType = null,
             )
-            TextField(
+            LabeledField(
+                label = stringResource(R.string.ftp_password),
                 value = password,
                 onValueChange = { password = it },
-                label = stringResource(R.string.ftp_password),
-                useLabelAsPlaceholder = true,
-                singleLine = true,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
-            )
-            NekoTextButton(
-                text = stringResource(R.string.ftp_generate),
-                onClick = {
-                    val alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789"
-                    val random = SecureRandom()
-                    password = TextFieldValue(
-                        (1..20).map { alphabet[random.nextInt(alphabet.length)] }.joinToString("")
+                keyboardType = null,
+                trailing = {
+                    NekoTextButton(
+                        text = stringResource(R.string.ftp_generate),
+                        onClick = {
+                            password = TextFieldValue(randomPassword())
+                        },
                     )
                 },
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            )
+            // Extra accounts.
+            extraAccounts.forEachIndexed { index, account ->
+                AccountEditor(
+                    account = account,
+                    onChange = { updated ->
+                        extraAccounts = extraAccounts.toMutableList().also { it[index] = updated }
+                    },
+                    onRemove = {
+                        extraAccounts = extraAccounts.toMutableList().also { it.removeAt(index) }
+                    },
+                )
+            }
+            NekoTextButton(
+                text = stringResource(R.string.ftp_add_account),
+                onClick = {
+                    extraAccounts = extraAccounts + FtpAccount(username = "", password = randomPassword())
+                },
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
             )
         }
 
         // Ports
-        SmallTitle(text = stringResource(R.string.ftp_ports))
         Card {
-            TextField(
+            LabeledField(
+                label = stringResource(R.string.ftp_port),
                 value = port,
                 onValueChange = { port = it },
-                label = stringResource(R.string.ftp_port),
-                useLabelAsPlaceholder = true,
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                keyboardType = KeyboardType.Number,
             )
-            TextField(
+            LabeledField(
+                label = stringResource(R.string.ftp_pasv_start),
                 value = pasvStart,
                 onValueChange = { pasvStart = it },
-                label = stringResource(R.string.ftp_pasv_start),
-                useLabelAsPlaceholder = true,
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                keyboardType = KeyboardType.Number,
             )
             Text(
                 text = stringResource(R.string.ftp_pasv_hint, (pasvStart.text.toIntOrNull() ?: 50000) + 32),
                 color = colorScheme.onSurfaceVariantSummary,
                 style = MiuixTheme.textStyles.subtitle,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+        }
+
+        errorText?.let {
+            Text(
+                text = it,
+                color = colorScheme.primary,
+                style = MiuixTheme.textStyles.subtitle,
             )
         }
 
@@ -210,11 +237,28 @@ fun FtpPanel() {
                     val portNum = port.text.toIntOrNull()?.takeIf { FtpConfig.isPortValid(it) } ?: ftp.port
                     val pasvNum = pasvStart.text.toIntOrNull()?.takeIf { FtpConfig.isPortValid(it) }
                         ?: ftp.passivePortStart
+
+                    fun trimmedAccount(a: FtpAccount) = a.copy(
+                        username = a.username.trim(),
+                        password = a.password,
+                        root = a.root.trim(),
+                    )
+                    val extras = extraAccounts.map { trimmedAccount(it) }
+                    val primaryName = username.text.trim().ifEmpty { ftp.username }
+                    val allNames = listOf(primaryName) + extras.map { it.username }
+                    val validNames = allNames.all { FtpAccount.nameValid(it) }
+                    val unique = allNames.size == allNames.distinct().size
+                    if (!validNames || !unique) {
+                        errorText = context.getString(R.string.ftp_account_invalid)
+                        return@NekoTextButton
+                    }
+                    errorText = null
                     val newFtp = ftp.copy(
-                        username = username.text.trim().ifEmpty { ftp.username },
+                        username = primaryName,
                         password = password.text.ifEmpty { ftp.password },
                         port = portNum,
                         passivePortStart = pasvNum,
+                        accounts = extras,
                     )
                     val wasRunning = state.ftpRunning
                     manager.updateFtp(newFtp)
@@ -224,4 +268,125 @@ fun FtpPanel() {
             )
         }
     }
+}
+
+@Composable
+private fun AccountEditor(
+    account: FtpAccount,
+    onChange: (FtpAccount) -> Unit,
+    onRemove: () -> Unit,
+) {
+    // Local editing state initialized once; the parent list only receives the
+    // final values (keying remember on the text itself would reset the cursor
+    // on every keystroke).
+    var username by remember { mutableStateOf(TextFieldValue(account.username)) }
+    var password by remember { mutableStateOf(TextFieldValue(account.password)) }
+    var root by remember { mutableStateOf(TextFieldValue(account.root)) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            NekoTextButton(
+                text = stringResource(R.string.ftp_delete_account),
+                onClick = onRemove,
+            )
+        }
+        LabeledField(
+            label = stringResource(R.string.ftp_username),
+            value = username,
+            onValueChange = {
+                username = it
+                onChange(account.copy(username = it.text))
+            },
+            keyboardType = null,
+        )
+        LabeledField(
+            label = stringResource(R.string.ftp_password),
+            value = password,
+            onValueChange = {
+                password = it
+                onChange(account.copy(password = it.text))
+            },
+            keyboardType = null,
+            trailing = {
+                NekoTextButton(
+                    text = stringResource(R.string.ftp_generate),
+                    onClick = {
+                        val generated = randomPassword()
+                        password = TextFieldValue(generated)
+                        onChange(account.copy(password = generated))
+                    },
+                )
+            },
+        )
+        LabeledField(
+            label = stringResource(R.string.ftp_account_root),
+            value = root,
+            onValueChange = {
+                root = it
+                onChange(account.copy(root = it.text))
+            },
+            keyboardType = null,
+        )
+    }
+}
+
+/**
+ * A text field whose label stays visible above the value. The old
+ * `useLabelAsPlaceholder` style hid the field's meaning once text was
+ * entered ("如果不把数值全删掉，压根不知道键是什么").
+ */
+@Composable
+private fun LabeledField(
+    label: String,
+    value: TextFieldValue,
+    onValueChange: (TextFieldValue) -> Unit,
+    keyboardType: KeyboardType?,
+    trailing: (@Composable () -> Unit)? = null,
+) {
+    if (trailing == null) {
+        TextField(
+            value = value,
+            onValueChange = onValueChange,
+            label = label,
+            useLabelAsPlaceholder = false,
+            singleLine = true,
+            keyboardOptions = keyboardType?.let { KeyboardOptions(keyboardType = it) } ?: KeyboardOptions.Default,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 6.dp),
+        )
+    } else {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TextField(
+                value = value,
+                onValueChange = onValueChange,
+                label = label,
+                useLabelAsPlaceholder = false,
+                singleLine = true,
+                keyboardOptions = keyboardType?.let { KeyboardOptions(keyboardType = it) } ?: KeyboardOptions.Default,
+                modifier = Modifier.weight(1f),
+            )
+            trailing()
+        }
+    }
+}
+
+private fun randomPassword(): String {
+    val alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789"
+    val random = SecureRandom()
+    return (1..20).map { alphabet[random.nextInt(alphabet.length)] }.joinToString("")
 }

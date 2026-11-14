@@ -1,7 +1,9 @@
 package io.github.masgzy.nekoport.ui.pages
 
+import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -40,6 +42,7 @@ private val LogColors = mapOf(
 fun LogsPage(contentPadding: PaddingValues) {
     val entries by AppLog.flow.collectAsState(initial = emptyList())
     val colorScheme = MiuixTheme.colorScheme
+    val context = androidx.compose.ui.platform.LocalContext.current
     var filterIndex by remember { mutableIntStateOf(0) }
     var showClearDialog by remember { mutableStateOf(false) }
 
@@ -72,11 +75,36 @@ fun LogsPage(contentPadding: PaddingValues) {
                     title = stringResource(R.string.logs_title),
                     onSelectedIndexChange = { filterIndex = it },
                 )
-                NekoTextButton(
-                    text = stringResource(R.string.logs_clear),
-                    onClick = { showClearDialog = true },
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                )
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    NekoTextButton(
+                        text = stringResource(R.string.logs_copy),
+                        enabled = filtered.isNotEmpty(),
+                        onClick = {
+                            val timeFormat = java.text.SimpleDateFormat("MM-dd HH:mm:ss", java.util.Locale.US)
+                            val text = filtered.joinToString("\n") { entry ->
+                                "[${timeFormat.format(java.util.Date(entry.time))}] ${entry.level.name}/${entry.tag}: ${entry.message}"
+                            }
+                            val cm =
+                                context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as
+                                    android.content.ClipboardManager
+                            cm.setPrimaryClip(android.content.ClipData.newPlainText("nekoport-logs", text))
+                            Toast.makeText(
+                                context,
+                                context.getString(R.string.logs_copied),
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        },
+                        modifier = Modifier.weight(1f),
+                    )
+                    NekoTextButton(
+                        text = stringResource(R.string.logs_clear),
+                        onClick = { showClearDialog = true },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
             }
         }
 
