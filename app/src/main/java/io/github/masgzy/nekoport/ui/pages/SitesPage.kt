@@ -44,7 +44,8 @@ import top.yukonga.miuix.kmp.basic.DropdownItem
 import top.yukonga.miuix.kmp.basic.FloatingActionButton
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextButton
+import io.github.masgzy.nekoport.ui.component.NekoTextButton
+import io.github.masgzy.nekoport.ui.component.animation.pressFeedback
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Add
@@ -92,7 +93,7 @@ fun SitesPage(contentPadding: PaddingValues) {
                                 color = colorScheme.onSurfaceVariantSummary,
                                 style = MiuixTheme.textStyles.main,
                             )
-                            TextButton(
+                            NekoTextButton(
                                 text = stringResource(R.string.sites_add),
                                 onClick = { showEditor = true },
                                 modifier = Modifier.padding(top = 8.dp),
@@ -115,6 +116,7 @@ fun SitesPage(contentPadding: PaddingValues) {
             onClick = { showEditor = true },
             modifier = Modifier
                 .align(Alignment.BottomEnd)
+                .pressFeedback(cornerRadius = 28.dp)
                 .padding(
                     bottom = contentPadding.calculateBottomPadding() + 16.dp,
                     end = 16.dp,
@@ -188,7 +190,7 @@ private fun SiteCard(runtime: SiteRuntime, onEdit: () -> Unit) {
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.End,
         ) {
-            TextButton(
+            NekoTextButton(
                 text = if (showMore) stringResource(R.string.dashboard_less) else stringResource(R.string.dashboard_more),
                 onClick = { showMore = !showMore },
             )
@@ -307,12 +309,12 @@ private fun SiteEditorDialog(site: SiteConfig?, onDismiss: () -> Unit) {
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                TextButton(
+                NekoTextButton(
                     text = stringResource(R.string.site_docroot_default),
                     onClick = { docRoot = TextFieldValue("") },
                     modifier = Modifier.weight(1f),
                 )
-                TextButton(
+                NekoTextButton(
                     text = stringResource(R.string.site_docroot_sdcard),
                     onClick = {
                         scope.launch {
@@ -398,7 +400,7 @@ private fun SiteEditorDialog(site: SiteConfig?, onDismiss: () -> Unit) {
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 if (!isNew) {
-                    TextButton(
+                    NekoTextButton(
                         text = stringResource(R.string.dialog_delete),
                         onClick = {
                             val updated = config.sites.filterNot { it.id == site!!.id }
@@ -409,22 +411,22 @@ private fun SiteEditorDialog(site: SiteConfig?, onDismiss: () -> Unit) {
                         modifier = Modifier.weight(1f),
                     )
                 }
-                TextButton(
+                NekoTextButton(
                     text = stringResource(R.string.dialog_cancel),
                     onClick = onDismiss,
                     modifier = Modifier.weight(1f),
                 )
-                TextButton(
+                NekoTextButton(
                     text = stringResource(R.string.site_confirm),
                     onClick = {
                         val portNum = port.text.toIntOrNull()
                         if (portNum == null || !SiteConfig.isPortValid(portNum)) {
                             showError(R.string.site_invalid_port)
-                            return@TextButton
+                            return@NekoTextButton
                         }
                         if (config.sites.any { it.id != site?.id && it.port == portNum }) {
                             showError(R.string.site_port_conflict)
-                            return@TextButton
+                            return@NekoTextButton
                         }
                         val engine = Engine.entries[engineIndex.coerceIn(0, Engine.entries.lastIndex)]
                         val finalName: String
@@ -432,7 +434,7 @@ private fun SiteEditorDialog(site: SiteConfig?, onDismiss: () -> Unit) {
                             val candidate = name.text.trim()
                             if (!SiteConfig.NAME_REGEX.matches(candidate)) {
                                 showError(R.string.site_invalid_name)
-                                return@TextButton
+                                return@NekoTextButton
                             }
                             finalName = candidate
                             // All disk work and the (blocking) service launch run on IO.

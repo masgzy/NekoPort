@@ -22,7 +22,7 @@ import io.github.masgzy.nekoport.core.AppLog
 import io.github.masgzy.nekoport.core.LogEntry
 import io.github.masgzy.nekoport.core.LogLevel
 import top.yukonga.miuix.kmp.basic.Card
-import top.yukonga.miuix.kmp.basic.TextButton
+import io.github.masgzy.nekoport.ui.component.NekoTextButton
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.preference.OverlaySpinnerPreference
@@ -72,7 +72,7 @@ fun LogsPage(contentPadding: PaddingValues) {
                     title = stringResource(R.string.logs_title),
                     onSelectedIndexChange = { filterIndex = it },
                 )
-                TextButton(
+                NekoTextButton(
                     text = stringResource(R.string.logs_clear),
                     onClick = { showClearDialog = true },
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
@@ -124,7 +124,7 @@ fun LogsPage(contentPadding: PaddingValues) {
         title = stringResource(R.string.logs_clear),
         onDismissRequest = { showClearDialog = false },
     ) {
-        TextButton(
+        NekoTextButton(
             text = stringResource(R.string.dialog_ok),
             onClick = {
                 AppLog.clear()

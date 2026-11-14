@@ -55,7 +55,8 @@ import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextButton
+import io.github.masgzy.nekoport.ui.component.NekoTextButton
+import io.github.masgzy.nekoport.ui.component.animation.pressFeedback
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.ChevronForward
 import top.yukonga.miuix.kmp.icon.extended.Link
@@ -166,7 +167,7 @@ fun DashboardPage(contentPadding: PaddingValues) {
                             color = colorScheme.onSurfaceVariantSummary,
                             style = MiuixTheme.textStyles.main,
                         )
-                        TextButton(
+                        NekoTextButton(
                             text = stringResource(R.string.dashboard_go_sites),
                             onClick = { NekoNav.goToTab(AppRoot.tabIndexOf(NekoTab.SITES)) },
                             modifier = Modifier.padding(top = 8.dp),
@@ -211,6 +212,7 @@ private fun ComponentRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .pressFeedback(cornerRadius = 16.dp)
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -249,7 +251,7 @@ private fun ComponentRow(
             )
         }
         if (version == null) {
-            TextButton(
+            NekoTextButton(
                 text = stringResource(R.string.runtime_install),
                 onClick = {
                     Toast.makeText(context, context.getString(R.string.dashboard_install_hint), Toast.LENGTH_SHORT).show()
@@ -376,17 +378,17 @@ private fun DashboardSiteCard(runtime: SiteRuntime) {
                 .padding(horizontal = 12.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            TextButton(
+            NekoTextButton(
                 text = stringResource(R.string.dashboard_open_folder),
                 onClick = { NekoNav.openFiles(docRoot) },
                 modifier = Modifier.weight(1f),
             )
-            TextButton(
+            NekoTextButton(
                 text = stringResource(R.string.dashboard_edit_files),
                 onClick = { NekoNav.openFiles(docRoot) },
                 modifier = Modifier.weight(1f),
             )
-            TextButton(
+            NekoTextButton(
                 text = stringResource(R.string.site_edit),
                 onClick = {
                     NekoNav.editSite(site.id)
@@ -401,7 +403,7 @@ private fun DashboardSiteCard(runtime: SiteRuntime) {
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.End,
         ) {
-            TextButton(
+            NekoTextButton(
                 text = if (showMore) stringResource(R.string.dashboard_less) else stringResource(R.string.dashboard_more),
                 onClick = { showMore = !showMore },
             )

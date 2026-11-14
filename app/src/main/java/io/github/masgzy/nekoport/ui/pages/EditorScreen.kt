@@ -46,7 +46,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextButton
+import io.github.masgzy.nekoport.ui.component.NekoTextButton
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Close
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
@@ -204,13 +204,13 @@ private fun EditorScreen(target: EditorTarget) {
         onDismiss = { OverlayBus.requestCloseEditor() },
         actions = {
             if (target.resetAction != null) {
-                TextButton(
+                NekoTextButton(
                     text = stringResource(R.string.editor_reset),
                     onClick = { confirmReset = true },
                 )
             }
             if (!target.readOnly) {
-                TextButton(
+                NekoTextButton(
                     text = stringResource(R.string.editor_save),
                     enabled = loaded && dirty,
                     onClick = {
@@ -284,12 +284,12 @@ private fun EditorScreen(target: EditorTarget) {
             onDismissRequest = { confirmReset = false },
         ) {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                TextButton(
+                NekoTextButton(
                     text = stringResource(R.string.dialog_cancel),
                     onClick = { confirmReset = false },
                     modifier = Modifier.weight(1f),
                 )
-                TextButton(
+                NekoTextButton(
                     text = stringResource(R.string.dialog_ok),
                     onClick = {
                         target.resetAction?.invoke()
@@ -310,12 +310,12 @@ private fun EditorScreen(target: EditorTarget) {
             onDismissRequest = { OverlayBus.clearPendingClose() },
         ) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(
+                NekoTextButton(
                     text = stringResource(R.string.editor_unsaved_discard),
                     onClick = { OverlayBus.closeEditor() },
                     modifier = Modifier.weight(1f),
                 )
-                TextButton(
+                NekoTextButton(
                     text = stringResource(R.string.editor_save),
                     onClick = {
                         scope.launch {

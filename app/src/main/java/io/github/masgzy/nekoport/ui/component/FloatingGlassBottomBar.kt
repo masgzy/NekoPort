@@ -265,7 +265,9 @@ initialValue = currentIndex.toFloat(),
 valueRange = 0f..(tabsCount - 1).toFloat(),
 visibilityThreshold = 0.001f,
 initialScale = 1f,
-pressedScale = 78f / 56f,
+// Global press feedback: the tab compresses to 0.96 on press and
+// springs back with a slight overshoot (see pressFeedback spec).
+pressedScale = 0.96f,
 canDrag = { position ->
 position.x in 0f..totalWidthPx
 },
@@ -453,7 +455,7 @@ refractionAmount = 24.dp.toPx(),
 highlight = { baseHighlight.copy(alpha = 0.75f) },
 layerBlock = {
 val width = size.width.coerceAtLeast(1f)
-val s = lerp(1f, 1f + 16.dp.toPx() / width, dampedDragAnimation.pressProgress)
+val s = lerp(1f, 1f - 10.dp.toPx() / width, dampedDragAnimation.pressProgress)
 scaleX = s
 scaleY = s
 },
@@ -492,7 +494,8 @@ content = tabsContent
 if (isLiquidGlassMode && backdrop != null) {
 CompositionLocalProvider(
 LocalFloatingBottomBarTabScale provides {
-lerp(1f, 1.2f, dampedDragAnimation.pressProgress)
+// Tab icon follows the same 0.96 compression with spring overshoot.
+dampedDragAnimation.scaleX
 },
 LocalFloatingBottomBarContentColor provides colors.activeContentColor
 ) {

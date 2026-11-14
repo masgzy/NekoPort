@@ -40,7 +40,7 @@ import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.DropdownItem
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextButton
+import io.github.masgzy.nekoport.ui.component.NekoTextButton
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Add
@@ -54,6 +54,8 @@ import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.OverlaySpinnerPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import io.github.masgzy.nekoport.ui.component.animation.pressFeedback
+import top.yukonga.miuix.kmp.utils.PressFeedbackType
 import java.io.File
 
 @Composable
@@ -146,7 +148,7 @@ fun FilesPage(contentPadding: PaddingValues) {
                         .padding(horizontal = 12.dp, vertical = 6.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    TextButton(
+                    NekoTextButton(
                         text = stringResource(R.string.files_internal_storage),
                         onClick = {
                             scope.launch {
@@ -161,12 +163,12 @@ fun FilesPage(contentPadding: PaddingValues) {
                         },
                         modifier = Modifier.weight(1f),
                     )
-                    TextButton(
+                    NekoTextButton(
                         text = stringResource(R.string.files_upload),
                         onClick = { uploadLauncher.launch(arrayOf("*/*")) },
                         modifier = Modifier.weight(1f),
                     )
-                    TextButton(
+                    NekoTextButton(
                         text = stringResource(R.string.files_new_folder),
                         onClick = {
                             createIsFolder = true
@@ -174,7 +176,7 @@ fun FilesPage(contentPadding: PaddingValues) {
                         },
                         modifier = Modifier.weight(1f),
                     )
-                    TextButton(
+                    NekoTextButton(
                         text = stringResource(R.string.files_new_file),
                         onClick = {
                             createIsFolder = false
@@ -196,6 +198,8 @@ fun FilesPage(contentPadding: PaddingValues) {
         if (parentDir != null && parentDir.canonicalPath != currentDir.canonicalFile.canonicalPath) {
             item {
                 Card(
+                    modifier = Modifier.pressFeedback(cornerRadius = 16.dp),
+                    pressFeedbackType = PressFeedbackType.None,
                     onClick = {
                         currentDir = parentDir
                         dirVersion++
@@ -225,14 +229,18 @@ fun FilesPage(contentPadding: PaddingValues) {
             }
         } else {
             items(listing, key = { it.absolutePath }) { file ->
-                Card(onClick = {
-                    if (file.isDirectory) {
-                        currentDir = file
-                        dirVersion++
-                    } else {
-                        actionFile = file
-                    }
-                }) {
+                Card(
+                    modifier = Modifier.pressFeedback(cornerRadius = 16.dp),
+                    pressFeedbackType = PressFeedbackType.None,
+                    onClick = {
+                        if (file.isDirectory) {
+                            currentDir = file
+                            dirVersion++
+                        } else {
+                            actionFile = file
+                        }
+                    },
+                ) {
                     Row(
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -271,7 +279,7 @@ fun FilesPage(contentPadding: PaddingValues) {
             title = msg,
             onDismissRequest = { toast = null },
         ) {
-            TextButton(text = stringResource(R.string.dialog_ok), onClick = { toast = null })
+            NekoTextButton(text = stringResource(R.string.dialog_ok), onClick = { toast = null })
         }
     }
     if (showCreateDialog) {
@@ -330,12 +338,12 @@ private fun CreateDialog(
                 modifier = Modifier.fillMaxWidth(),
             )
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                TextButton(
+                NekoTextButton(
                     text = stringResource(R.string.dialog_cancel),
                     onClick = onDismiss,
                     modifier = Modifier.weight(1f),
                 )
-                TextButton(
+                NekoTextButton(
                     text = stringResource(R.string.dialog_ok),
                     onClick = {
                         val clean = name.text.trim()
@@ -386,7 +394,7 @@ private fun FileActionDialog(
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    TextButton(
+                    NekoTextButton(
                         text = stringResource(R.string.dialog_cancel),
                         onClick = {
                             showEditor = false
@@ -394,7 +402,7 @@ private fun FileActionDialog(
                         },
                         modifier = Modifier.weight(1f),
                     )
-                    TextButton(
+                    NekoTextButton(
                         text = stringResource(R.string.site_confirm),
                         onClick = {
                             scope.launch {
@@ -430,7 +438,7 @@ private fun FileActionDialog(
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    TextButton(
+                    NekoTextButton(
                         text = stringResource(R.string.dialog_cancel),
                         onClick = {
                             showRename = false
@@ -438,7 +446,7 @@ private fun FileActionDialog(
                         },
                         modifier = Modifier.weight(1f),
                     )
-                    TextButton(
+                    NekoTextButton(
                         text = stringResource(R.string.dialog_ok),
                         onClick = {
                             val clean = newName.text.trim()
@@ -467,7 +475,7 @@ private fun FileActionDialog(
             },
         ) {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                TextButton(
+                NekoTextButton(
                     text = stringResource(R.string.dialog_cancel),
                     onClick = {
                         showDeleteConfirm = false
@@ -475,7 +483,7 @@ private fun FileActionDialog(
                     },
                     modifier = Modifier.weight(1f),
                 )
-                TextButton(
+                NekoTextButton(
                     text = stringResource(R.string.dialog_delete),
                     onClick = {
                         scope.launch {

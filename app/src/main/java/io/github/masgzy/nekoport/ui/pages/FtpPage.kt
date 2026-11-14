@@ -30,7 +30,7 @@ import kotlinx.coroutines.delay
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextButton
+import io.github.masgzy.nekoport.ui.component.NekoTextButton
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
@@ -153,7 +153,7 @@ fun FtpPanel() {
                     .fillMaxWidth()
                     .padding(horizontal = 12.dp, vertical = 6.dp),
             )
-            TextButton(
+            NekoTextButton(
                 text = stringResource(R.string.ftp_generate),
                 onClick = {
                     val alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789"
@@ -204,7 +204,7 @@ fun FtpPanel() {
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            TextButton(
+            NekoTextButton(
                 text = stringResource(R.string.ftp_save),
                 onClick = {
                     val portNum = port.text.toIntOrNull()?.takeIf { FtpConfig.isPortValid(it) } ?: ftp.port

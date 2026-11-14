@@ -27,7 +27,7 @@ import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.DropdownItem
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextButton
+import io.github.masgzy.nekoport.ui.component.NekoTextButton
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.preference.ArrowPreference
@@ -129,7 +129,7 @@ fun CronPanel() {
 
         // Add task (was the FAB of the standalone tab)
         Row(modifier = Modifier.fillMaxWidth()) {
-            TextButton(
+            NekoTextButton(
                 text = stringResource(R.string.cron_add),
                 onClick = { showEditor = true },
                 modifier = Modifier.fillMaxWidth(),
@@ -214,7 +214,7 @@ private fun TaskEditorDialog(task: CronTask?, onDismiss: () -> Unit) {
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
-                TextButton(
+                NekoTextButton(
                     text = stringResource(R.string.cron_check_expr),
                     onClick = { checkExpr() },
                     modifier = Modifier.weight(1f),
@@ -263,7 +263,7 @@ private fun TaskEditorDialog(task: CronTask?, onDismiss: () -> Unit) {
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 if (!isNew) {
-                    TextButton(
+                    NekoTextButton(
                         text = stringResource(R.string.dialog_delete),
                         onClick = {
                             manager.updateCron(cron.copy(tasks = cron.tasks.filterNot { it.id == task!!.id }))
@@ -272,28 +272,28 @@ private fun TaskEditorDialog(task: CronTask?, onDismiss: () -> Unit) {
                         modifier = Modifier.weight(1f),
                     )
                 }
-                TextButton(
+                NekoTextButton(
                     text = stringResource(R.string.dialog_cancel),
                     onClick = onDismiss,
                     modifier = Modifier.weight(1f),
                 )
-                TextButton(
+                NekoTextButton(
                     text = stringResource(R.string.site_confirm),
                     onClick = {
                         val trimmedName = name.text.trim()
                         if (!CronTask.isNameValid(trimmedName)) {
                             error = context.getString(R.string.cron_name_invalid)
-                            return@TextButton
+                            return@NekoTextButton
                         }
                         if (!CronParser.isValid(expr.text.trim())) {
                             error = context.getString(R.string.cron_expr_invalid)
-                            return@TextButton
+                            return@NekoTextButton
                         }
                         if (CronAction.entries[actionIndex.coerceIn(0, CronAction.entries.lastIndex)] == CronAction.COMMAND &&
                             command.text.isBlank()
                         ) {
                             error = context.getString(R.string.cron_command_empty)
-                            return@TextButton
+                            return@NekoTextButton
                         }
                         val newTask = CronTask(
                             id = task?.id ?: (cron.tasks.maxOfOrNull { it.id } ?: 0L) + 1L,

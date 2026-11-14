@@ -30,7 +30,7 @@ import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextButton
+import io.github.masgzy.nekoport.ui.component.NekoTextButton
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
@@ -92,7 +92,7 @@ fun MariaPanel() {
                         )
                     }
                 }
-                TextButton(
+                NekoTextButton(
                     text = stringResource(R.string.runtime_install),
                     enabled = installProgress == null,
                     onClick = {
@@ -201,7 +201,7 @@ fun MariaPanel() {
 
             // Save + apply
             Row(modifier = Modifier.fillMaxWidth()) {
-                TextButton(
+                NekoTextButton(
                     text = stringResource(R.string.maria_save),
                     onClick = {
                         val portNum = port.text.toIntOrNull()

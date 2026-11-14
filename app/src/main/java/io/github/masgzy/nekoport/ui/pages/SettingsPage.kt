@@ -37,7 +37,7 @@ import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.DropdownItem
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextButton
+import io.github.masgzy.nekoport.ui.component.NekoTextButton
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.preference.ArrowPreference
@@ -229,12 +229,12 @@ fun SettingsPage(contentPadding: PaddingValues) {
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    TextButton(
+                    NekoTextButton(
                         text = stringResource(R.string.dialog_cancel),
                         onClick = { showCustomMirror = false },
                         modifier = Modifier.weight(1f),
                     )
-                    TextButton(
+                    NekoTextButton(
                         text = stringResource(R.string.dialog_ok),
                         onClick = {
                             val url = customMirror.text.trim()
@@ -334,7 +334,7 @@ private fun RuntimeComponentsCard() {
                     .padding(horizontal = 12.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                TextButton(
+                NekoTextButton(
                     text = stringResource(
                         if (version != null) R.string.runtime_update_one else R.string.runtime_install_one,
                     ),
@@ -345,7 +345,7 @@ private fun RuntimeComponentsCard() {
                     modifier = Modifier.weight(1f),
                 )
                 if (version != null) {
-                    TextButton(
+                    NekoTextButton(
                         text = stringResource(R.string.runtime_uninstall_one),
                         enabled = !busy,
                         onClick = { confirmUninstall = pkg },
@@ -372,12 +372,12 @@ private fun RuntimeComponentsCard() {
             onDismissRequest = { confirmUninstall = null },
         ) {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                TextButton(
+                NekoTextButton(
                     text = stringResource(R.string.dialog_cancel),
                     onClick = { confirmUninstall = null },
                     modifier = Modifier.weight(1f),
                 )
-                TextButton(
+                NekoTextButton(
                     text = stringResource(R.string.dialog_ok),
                     onClick = {
                         scope.launch {
