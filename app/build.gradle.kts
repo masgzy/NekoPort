@@ -23,7 +23,7 @@ android {
         // targetSdk is intentionally kept at 28 (same approach as Termux):
         // it allows executing the bundled/downloaded php-cgi runtime from app data.
         targetSdk = 28
-        versionCode = 3
+        versionCode = 4
         versionName = "0.1.0-alpha.1"
         resourceConfigurations += listOf("zh", "en")
     }
