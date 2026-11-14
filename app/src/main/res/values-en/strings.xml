@@ -229,6 +229,8 @@
     <string name="settings_theme_dark">Dark</string>
     <string name="settings_boot_start">Start services on boot</string>
     <string name="settings_boot_start_summary">Restore the previous service state after boot</string>
+    <string name="settings_battery">Ignore battery optimizations</string>
+    <string name="settings_battery_summary">Keeps services alive long-term: allow NekoPort to skip doze and battery saving</string>
     <string name="settings_about">About</string>
     <string name="settings_about_summary">Android web server bundling Lighttpd / Nginx / Apache / PHP-FPM / MariaDB (MySQL) / Pure-FTPd\nUI built with the miuix liquid-glass design</string>
     <string name="settings_github">GitHub repository</string>

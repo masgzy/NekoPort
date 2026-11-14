@@ -15,7 +15,11 @@ enum class Engine(val id: String, val displayName: String) {
     ;
 
     companion object {
-        fun byId(raw: String?): Engine = entries.firstOrNull { it.id == raw } ?: LIGHTTPD
+        fun byId(raw: String?): Engine =
+            entries.firstOrNull { it.id == raw }
+                ?: LIGHTTPD.also {
+                    if (raw != null) AppLog.w("Config", "unknown engine '$raw', falling back to lighttpd")
+                }
     }
 }
 
@@ -98,7 +102,11 @@ enum class CronAction(val id: String) {
     ;
 
     companion object {
-        fun byId(raw: String?): CronAction = entries.firstOrNull { it.id == raw } ?: COMMAND
+        fun byId(raw: String?): CronAction =
+            entries.firstOrNull { it.id == raw }
+                ?: COMMAND.also {
+                    if (raw != null) AppLog.w("Config", "unknown cron action '$raw', falling back to command")
+                }
     }
 }
 

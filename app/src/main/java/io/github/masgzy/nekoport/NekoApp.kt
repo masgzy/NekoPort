@@ -24,7 +24,22 @@ class NekoApp : Application() {
         if (persisted.isNotEmpty()) {
             AppLog.i("NekoApp", "restored ${persisted.size} log lines from previous session")
         }
+        rotateDefaultFtpPassword()
         AppLog.i("NekoApp", "NekoPort started")
+    }
+
+    /**
+     * The factory FTP password is a placeholder; replace it once with a
+     * random one so no device ships with a known credential.
+     */
+    private fun rotateDefaultFtpPassword() {
+        val config = serverManager.config.value
+        if (config.ftp.password != "changeme-neko") return
+        val alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789"
+        val random = java.security.SecureRandom()
+        val password = (1..20).map { alphabet[random.nextInt(alphabet.length)] }.joinToString("")
+        serverManager.updateFtp(config.ftp.copy(password = password))
+        AppLog.i("NekoApp", "generated a random FTP password (visible in Manage → FTP)")
     }
 
     /**

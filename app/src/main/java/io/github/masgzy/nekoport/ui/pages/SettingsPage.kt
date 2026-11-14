@@ -101,6 +101,26 @@ fun SettingsPage(contentPadding: PaddingValues) {
                     checked = settings.startOnBoot,
                     onCheckedChange = { manager.updateSettings(settings.copy(startOnBoot = it)) },
                 )
+                ArrowPreference(
+                    title = stringResource(R.string.settings_battery),
+                    summary = stringResource(R.string.settings_battery_summary),
+                    onClick = {
+                        runCatching {
+                            context.startActivity(
+                                android.content.Intent(
+                                    android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                                    android.net.Uri.parse("package:io.github.masgzy.nekoport"),
+                                ),
+                            )
+                        }.onFailure {
+                            runCatching {
+                                context.startActivity(
+                                    android.content.Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS),
+                                )
+                            }
+                        }
+                    },
+                )
             }
         }
 

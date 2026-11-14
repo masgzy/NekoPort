@@ -229,6 +229,8 @@
     <string name="settings_theme_dark">深色</string>
     <string name="settings_boot_start">开机自动启动服务</string>
     <string name="settings_boot_start_summary">开机后自动恢复上次的服务状态</string>
+    <string name="settings_battery">忽略电池优化</string>
+    <string name="settings_battery_summary">保持服务长期存活：建议允许 NekoPort 在后台不被省电策略杀死</string>
     <string name="settings_about">关于</string>
     <string name="settings_about_summary">Android Web 服务器 · 内置 Lighttpd / Nginx / Apache / PHP-FPM / MariaDB (MySQL) / Pure-FTPd\nUI 基于 miuix 液态玻璃设计</string>
     <string name="settings_github">GitHub 仓库</string>
