@@ -31,7 +31,7 @@ import io.github.masgzy.nekoport.R
 import io.github.masgzy.nekoport.core.AppLog
 import io.github.masgzy.nekoport.core.ConfigStore
 import io.github.masgzy.nekoport.core.ServerManager
-import io.github.masgzy.nekoport.server.MimeTypes
+import io.github.masgzy.nekoport.core.MimeTypes
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext

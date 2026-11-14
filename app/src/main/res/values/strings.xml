@@ -6,38 +6,23 @@
     <string name="notification_running_text">%1$d 个站点服务中 · FTP %2$s</string>
     <string name="notification_stop_action">停止全部服务</string>
 
-    <string name="tab_home">首页</string>
     <string name="tab_sites">站点</string>
+    <string name="tab_ftp">FTP</string>
     <string name="tab_files">文件</string>
     <string name="tab_logs">日志</string>
     <string name="tab_settings">设置</string>
 
-    <string name="home_master_switch">运行全部服务</string>
-    <string name="home_master_switch_summary">启动所有已启用站点与 FTP 服务，并在通知栏保持常驻</string>
-    <string name="home_network">网络地址</string>
-    <string name="home_network_empty">未检测到局域网地址，请确认 Wi-Fi 已连接</string>
-    <string name="home_http_card">Web 服务</string>
-    <string name="home_http_status_running">%1$d 个站点运行中</string>
-    <string name="home_http_status_stopped">已停止</string>
-    <string name="home_ftp_card">FTP 服务</string>
-    <string name="home_ftp_status_running">运行中 · 端口 %1$d</string>
-    <string name="home_ftp_status_disabled">未启用</string>
-    <string name="home_php_card">PHP 环境</string>
-    <string name="home_php_not_installed">未安装，前往设置安装</string>
-    <string name="home_php_version">已安装 PHP %1$s</string>
-    <string name="home_php_outdated_warning">当前 PHP 版本存在 php2shell 风险，请更新至 %1$s 以上</string>
-    <string name="home_site_card">站点一览</string>
-    <string name="home_no_sites">还没有站点，去「站点」页创建一个吧</string>
-    <string name="home_open_browser">在浏览器打开</string>
-
+    <!-- Sites -->
+    <string name="sites_master_switch">运行全部服务</string>
+    <string name="sites_master_switch_summary">启动所有已启用站点与 FTP 服务，并在通知栏保持常驻</string>
     <string name="sites_add">新建站点</string>
     <string name="sites_empty">点击右下角按钮创建第一个站点</string>
     <string name="site_name">站点名称</string>
-    <string name="site_name_hint">例如 my-site（将创建同名目录）</string>
     <string name="site_port">监听端口</string>
     <string name="site_docroot">站点目录</string>
+    <string name="site_engine">服务器引擎</string>
     <string name="site_enable_php">启用 PHP</string>
-    <string name="site_enable_php_summary">通过内置 FastCGI 连接 php-cgi 处理 .php 文件</string>
+    <string name="site_enable_php_summary">通过 php-fpm（FastCGI）处理 PHP 文件，按扩展名白名单精确转发</string>
     <string name="site_dir_listing">目录列表</string>
     <string name="site_dir_listing_summary">无默认首页时显示目录结构</string>
     <string name="site_index_files">默认首页（逗号分隔）</string>
@@ -45,21 +30,48 @@
     <string name="site_php_deny_dirs_hint">如 uploads,upload,static，防止上传目录被植入 webshell</string>
     <string name="site_php_extensions">PHP 扩展名白名单（逗号分隔）</string>
     <string name="site_php_extensions_hint">默认仅 php；扩展名不在白名单内时只作为静态文件提供</string>
+    <string name="site_php_not_installed">尚未安装 PHP 运行时，请先在下方安装服务器组件</string>
     <string name="site_enabled">启用该站点</string>
-    <string name="site_delete">删除站点</string>
-    <string name="site_delete_confirm">删除站点「%1$s」？目录内容仍会保留，可在文件页手动清理。</string>
-    <string name="site_created">站点已创建</string>
-    <string name="site_saved">站点已保存</string>
-    <string name="site_deleted">站点已删除</string>
-    <string name="site_port_conflict">端口已被其他站点占用</string>
-    <string name="site_invalid_name">站点名称只能包含字母、数字、下划线和连字符</string>
-    <string name="site_invalid_port">端口需在 1-65535 之间</string>
     <string name="site_status_running">运行中</string>
     <string name="site_status_stopped">已停止</string>
+    <string name="site_status_no_runtime">未安装服务器组件，请先点击「安装服务器组件」</string>
     <string name="site_edit">编辑站点</string>
     <string name="site_confirm">保存</string>
-    <string name="site_cancel">取消</string>
+    <string name="site_port_conflict">端口已被其他站点占用</string>
+    <string name="site_invalid_name">站点名称只能包含字母、数字、下划线和连字符</string>
+    <string name="site_invalid_port">端口需在 1024-65535 之间</string>
 
+    <!-- Runtime -->
+    <string name="runtime_title">服务器组件</string>
+    <string name="runtime_ready">已就绪</string>
+    <string name="runtime_missing">尚未安装。组件为真实的 nginx / Apache / lighttpd / PHP-FPM / Pure-FTPd 官方二进制（来自 Termux 软件源），安装后即可使用</string>
+    <string name="runtime_install">安装服务器组件</string>
+    <string name="runtime_installing">正在安装服务器组件…</string>
+    <string name="runtime_reinstall">重新安装 / 更新组件</string>
+    <string name="runtime_uninstall">卸载组件</string>
+    <string name="runtime_uninstall_confirm">卸载后所有服务将停止且无法启动，直到重新安装。确定卸载？</string>
+    <string name="runtime_install_failed">安装失败：%1$s</string>
+    <string name="runtime_note">运行时来自 Termux 官方软件源（aarch64/arm/x86_64 原生编译），安装于应用私有目录，配置文件已内置安全加固。首次安装需要联网，约 30-60 MB。</string>
+    <string name="settings_php_mirror">下载镜像地址</string>
+
+    <!-- FTP -->
+    <string name="ftp_enable">启用 FTP 服务</string>
+    <string name="ftp_status_running">运行中 · 端口 %1$d</string>
+    <string name="ftp_status_stopped">已停止</string>
+    <string name="ftp_connection">连接信息</string>
+    <string name="ftp_connection_hint">用 FTP 客户端连接（被动端口范围见下方）</string>
+    <string name="ftp_root_hint">FTP 根目录为站点根目录（sites/），登录后可直接管理全部站点文件</string>
+    <string name="ftp_account">FTP 账户</string>
+    <string name="ftp_username">用户名</string>
+    <string name="ftp_password">密码</string>
+    <string name="ftp_generate">生成随机密码</string>
+    <string name="ftp_ports">端口设置</string>
+    <string name="ftp_port">FTP 端口</string>
+    <string name="ftp_pasv_start">被动模式起始端口</string>
+    <string name="ftp_pasv_hint">被动模式使用端口 %1$d 起连续 32 个端口，客户端需支持被动模式</string>
+    <string name="ftp_save">保存并应用</string>
+
+    <!-- Files -->
     <string name="files_pick_site">选择站点</string>
     <string name="files_empty_dir">目录为空</string>
     <string name="files_new_folder">新建文件夹</string>
@@ -70,14 +82,13 @@
     <string name="files_delete">删除</string>
     <string name="files_share">分享 / 下载</string>
     <string name="files_edit">编辑</string>
-    <string name="files_saved">已保存</string>
-    <string name="files_deleted">已删除</string>
     <string name="files_uploaded">上传完成</string>
     <string name="files_upload_failed">上传失败：写入被拒绝</string>
     <string name="files_too_large">文件超过 256KB，仅支持分享，不支持在线编辑</string>
     <string name="files_confirm_delete">删除 %1$s？</string>
     <string name="files_content">文件内容</string>
 
+    <!-- Logs -->
     <string name="logs_title">运行日志</string>
     <string name="logs_filter_all">全部</string>
     <string name="logs_filter_access">访问</string>
@@ -86,39 +97,19 @@
     <string name="logs_clear">清空日志</string>
     <string name="logs_empty">暂无日志</string>
 
+    <!-- Settings -->
     <string name="settings_theme">主题模式</string>
     <string name="settings_theme_system">跟随系统</string>
     <string name="settings_theme_light">浅色</string>
     <string name="settings_theme_dark">深色</string>
-    <string name="settings_ftp">FTP 服务</string>
-    <string name="settings_ftp_enable">启用 FTP 服务</string>
-    <string name="settings_ftp_port">FTP 端口</string>
-    <string name="settings_ftp_user">FTP 用户名</string>
-    <string name="settings_ftp_password">FTP 密码</string>
-    <string name="settings_ftp_generate">生成随机密码</string>
-    <string name="settings_ftp_pasv_start">被动模式起始端口</string>
-    <string name="settings_php">PHP 环境</string>
-    <string name="settings_php_install">下载安装 PHP</string>
-    <string name="settings_php_reinstall">重新安装 / 更新 PHP</string>
-    <string name="settings_php_uninstall">卸载 PHP</string>
-    <string name="settings_php_mirror">下载镜像地址</string>
-    <string name="settings_php_status_none">未安装</string>
-    <string name="settings_php_status_version">已安装：PHP %1$s</string>
-    <string name="settings_php_status_downloading">正在下载 %1$s</string>
-    <string name="settings_php_status_extracting">正在安装 %1$s</string>
-    <string name="settings_php_status_failed">安装失败：%1$s</string>
-    <string name="settings_php_ok">PHP %1$s 已包含 php2shell 修复，可以安全使用</string>
-    <string name="settings_php_outdated">PHP %1$s 低于安全版本（%2$s），存在 php2shell（session.upload_progress + LFI）风险，强烈建议更新</string>
-    <string name="settings_php_note">PHP 运行时来自 Termux 官方软件源（aarch64/arm/x86_64），安装于应用私有目录。php.ini 已内置安全加固。</string>
-    <string name="settings_security">安全加固</string>
-    <string name="settings_security_summary">访问日志 · 敏感文件拦截 · 上传目录 PHP 执行保护默认开启，详见 README「安全设计」</string>
-    <string name="settings_access_log">记录访问日志</string>
     <string name="settings_boot_start">开机自动启动服务</string>
     <string name="settings_boot_start_summary">开机后自动恢复上次的服务状态</string>
+    <string name="settings_security">安全加固</string>
+    <string name="settings_security_summary">真实官方服务器二进制 · PHP 扩展名白名单 · 上传目录执行保护 · 点文件（.htaccess/.git/.env）拦截 · php.ini 安全加固，详见 README「安全设计」</string>
     <string name="settings_about">关于</string>
-    <string name="settings_about_summary">从零实现的 Android Web 服务器 · GPL-3.0-or-later\n仅借鉴 KSWeb 的功能形态，全部代码独立实现</string>
+    <string name="settings_about_summary">Android Web 服务器 · 内置真实的 Nginx / Apache / Lighttpd / PHP-FPM / Pure-FTPd\nUI 基于 miuix 液态玻璃设计</string>
     <string name="settings_github">GitHub 仓库</string>
-    <string name="settings_license">开源协议：GPL-3.0-or-later</string>
+    <string name="settings_license">开源协议：GPL-3.0-or-later · v%1$s</string>
 
     <string name="dialog_ok">确定</string>
     <string name="dialog_cancel">取消</string>

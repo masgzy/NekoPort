@@ -1,4 +1,4 @@
-package io.github.masgzy.nekoport.server
+package io.github.masgzy.nekoport.core
 
 object MimeTypes {
 

@@ -1,10 +1,10 @@
 package io.github.masgzy.nekoport.ui.pages
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -17,8 +17,10 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -27,8 +29,14 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import io.github.masgzy.nekoport.NekoApp
 import io.github.masgzy.nekoport.R
+import io.github.masgzy.nekoport.core.Engine
+import io.github.masgzy.nekoport.core.ServerService
 import io.github.masgzy.nekoport.core.SiteConfig
+import io.github.masgzy.nekoport.core.SiteRuntime
+import io.github.masgzy.nekoport.runtime.TermuxRuntime
+import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.DropdownItem
 import top.yukonga.miuix.kmp.basic.FloatingActionButton
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
@@ -38,6 +46,7 @@ import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Add
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.preference.ArrowPreference
+import top.yukonga.miuix.kmp.preference.OverlaySpinnerPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import java.io.File
@@ -47,55 +56,82 @@ fun SitesPage(contentPadding: PaddingValues) {
     val manager = NekoApp.get().serverManager
     val state by manager.state.collectAsState()
     val colorScheme = MiuixTheme.colorScheme
+    val context = LocalContext.current
     var showEditor by rememberSaveable { mutableStateOf(false) }
     var editingSite by remember { mutableStateOf<SiteConfig?>(null) }
 
-    LazyColumn(
-        contentPadding = contentPadding,
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-        modifier = Modifier.fillMaxSize(),
-    ) {
-        if (state.sites.isEmpty()) {
-            item {
-                Card {
-                    Text(
-                        text = stringResource(R.string.sites_empty),
-                        color = colorScheme.onSurfaceVariantSummary,
-                        modifier = Modifier.padding(16.dp),
-                    )
-                }
-            }
-        } else {
-            state.sites.forEach { runtime ->
-                item(key = runtime.site.id) {
-                    Card(
-                        onLongPress = { editingSite = runtime.site },
-                    ) {
-                        SwitchPreference(
-                            title = "${runtime.site.name} :${runtime.site.port}",
-                            summary = if (runtime.site.enablePhp) "PHP" else null,
-                            checked = runtime.running,
-                            onCheckedChange = { on ->
-                                if (on) manager.startSite(runtime.site) else manager.stopSite(runtime.site.id)
-                            },
-                        )
-                        ArrowPreference(
-                            title = stringResource(R.string.site_edit),
-                            onClick = { editingSite = runtime.site },
-                        )
-                    }
-                }
-            }
+    // Keep runtime status fresh (install state, version detection).
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        while (true) {
+            manager.refreshRuntimeStatus()
+            manager.refresh()
+            kotlinx.coroutines.delay(4000)
         }
     }
 
-    // Floating "add site" button.
     Box(modifier = Modifier.fillMaxSize()) {
+        LazyColumn(
+            contentPadding = contentPadding,
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            // Master switch - starts/stops every enabled service in a
+            // foreground service so servers survive leaving the app.
+            item {
+                Card {
+                    SwitchPreference(
+                        title = stringResource(R.string.sites_master_switch),
+                        summary = stringResource(R.string.sites_master_switch_summary),
+                        checked = state.running,
+                        onCheckedChange = { on ->
+                            if (on) ServerService.start(context) else ServerService.stop(context)
+                        },
+                    )
+                }
+            }
+
+            // Bundled real-server runtime status.
+            item {
+                RuntimeCard()
+            }
+
+            if (state.sites.isEmpty()) {
+                item {
+                    Card {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text(
+                                text = stringResource(R.string.sites_empty),
+                                color = colorScheme.onSurfaceVariantSummary,
+                                style = MiuixTheme.textStyles.main,
+                            )
+                            TextButton(
+                                text = stringResource(R.string.sites_add),
+                                onClick = { showEditor = true },
+                                modifier = Modifier.padding(top = 8.dp),
+                            )
+                        }
+                    }
+                }
+            } else {
+                items(state.sites, key = { it.site.id }) { runtime ->
+                    SiteCard(
+                        runtime = runtime,
+                        onEdit = { editingSite = runtime.site },
+                    )
+                }
+            }
+        }
+
+        // Floating "add site" button, always above the glass bottom bar.
         FloatingActionButton(
             onClick = { showEditor = true },
             modifier = Modifier
-                .align(androidx.compose.ui.Alignment.BottomEnd)
-                .padding(bottom = 108.dp, end = 20.dp),
+                .align(Alignment.BottomEnd)
+                .padding(
+                    bottom = contentPadding.calculateBottomPadding() + 16.dp,
+                    end = 16.dp,
+                )
+                .size(56.dp),
         ) {
             Icon(
                 imageVector = MiuixIcons.Add,
@@ -121,15 +157,130 @@ fun SitesPage(contentPadding: PaddingValues) {
 }
 
 @Composable
+private fun RuntimeCard() {
+    val manager = NekoApp.get().serverManager
+    val state by manager.state.collectAsState()
+    val config by manager.config.collectAsState()
+    val colorScheme = MiuixTheme.colorScheme
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val runtime = state.runtime
+    var progressText by remember { mutableStateOf<String?>(null) }
+
+    Card {
+        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+            Text(
+                text = stringResource(R.string.runtime_title),
+                color = colorScheme.onSurface,
+                style = MiuixTheme.textStyles.title2,
+            )
+            Text(
+                text = if (runtime.installed) {
+                    val versions = runtime.versions.entries.joinToString(", ") {
+                        "${it.key.label} ${it.value}"
+                    }
+                    versions.ifEmpty { stringResource(R.string.runtime_ready) }
+                } else {
+                    stringResource(R.string.runtime_missing)
+                },
+                color = colorScheme.onSurfaceVariantSummary,
+                style = MiuixTheme.textStyles.subtitle,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+            progressText?.let {
+                Text(
+                    text = it,
+                    color = colorScheme.primary,
+                    style = MiuixTheme.textStyles.subtitle,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
+        }
+        if (!runtime.installed) {
+            TextButton(
+                text = stringResource(R.string.runtime_install),
+                enabled = progressText == null,
+                onClick = {
+                    progressText = context.getString(R.string.runtime_installing)
+                    scope.launch {
+                        val mirror = config.settings.phpMirror
+                        val result = TermuxRuntime.install(context, mirror) { progress ->
+                            progressText = when (progress) {
+                                is TermuxRuntime.Progress.Phase -> "..."
+                                is TermuxRuntime.Progress.Package ->
+                                    "${progress.name} (${progress.index}/${progress.total})"
+                                is TermuxRuntime.Progress.Download ->
+                                    "${progress.name} ${progress.percent}%"
+                            }
+                        }
+                        result.fold(
+                            onSuccess = { progressText = null },
+                            onFailure = {
+                                progressText = it.message
+                            },
+                        )
+                        manager.refreshRuntimeStatus()
+                    }
+                },
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun SiteCard(runtime: SiteRuntime, onEdit: () -> Unit) {
+    val manager = NekoApp.get().serverManager
+    val colorScheme = MiuixTheme.colorScheme
+    Card {
+        SwitchPreference(
+            title = "${runtime.site.name} :${runtime.site.port}",
+            summary = buildString {
+                append(runtime.site.engine.displayName)
+                if (runtime.site.enablePhp) append(" + PHP")
+                append(" · ")
+                append(
+                    if (runtime.running) {
+                        stringResource(R.string.site_status_running)
+                    } else {
+                        stringResource(R.string.site_status_stopped)
+                    },
+                )
+            },
+            checked = runtime.running,
+            onCheckedChange = { on ->
+                if (on) manager.startSite(runtime.site) else manager.stopSite(runtime.site.id)
+            },
+        )
+        runtime.statusText?.let {
+            Text(
+                text = it,
+                color = colorScheme.onSurfaceVariantSummary,
+                style = MiuixTheme.textStyles.subtitle,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+        }
+        ArrowPreference(
+            title = stringResource(R.string.site_edit),
+            onClick = onEdit,
+        )
+    }
+}
+
+@Composable
 private fun SiteEditorDialog(site: SiteConfig?, onDismiss: () -> Unit) {
     val manager = NekoApp.get().serverManager
     val config by manager.config.collectAsState()
+    val state by manager.state.collectAsState()
     val context = LocalContext.current
     val colorScheme = MiuixTheme.colorScheme
     val isNew = site == null
 
     var name by remember { mutableStateOf(TextFieldValue(site?.name ?: "")) }
     var port by remember { mutableStateOf(TextFieldValue(site?.port?.toString() ?: "8080")) }
+    var engineIndex by remember {
+        mutableStateOf(Engine.entries.indexOfFirst { it == (site?.engine ?: Engine.NGINX) }.coerceAtLeast(0))
+    }
     var enabled by remember { mutableStateOf(site?.enabled ?: true) }
     var enablePhp by remember { mutableStateOf(site?.enablePhp ?: false) }
     var dirListing by remember { mutableStateOf(site?.directoryListing ?: true) }
@@ -173,6 +324,12 @@ private fun SiteEditorDialog(site: SiteConfig?, onDismiss: () -> Unit) {
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.fillMaxWidth(),
+            )
+            OverlaySpinnerPreference(
+                items = Engine.entries.map { DropdownItem(text = it.displayName, onClick = {}) },
+                selectedIndex = engineIndex,
+                title = stringResource(R.string.site_engine),
+                onSelectedIndexChange = { engineIndex = it },
             )
             SwitchPreference(
                 title = stringResource(R.string.site_enabled),
@@ -223,6 +380,16 @@ private fun SiteEditorDialog(site: SiteConfig?, onDismiss: () -> Unit) {
                     useLabelAsPlaceholder = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
+                if (!state.runtime.versions.containsKey(
+                        io.github.masgzy.nekoport.runtime.RuntimePackage.PHP_FPM,
+                    )
+                ) {
+                    Text(
+                        text = stringResource(R.string.site_php_not_installed),
+                        color = colorScheme.onSurfaceVariantSummary,
+                        style = MiuixTheme.textStyles.subtitle,
+                    )
+                }
             }
             if (error != null) {
                 Text(text = error!!, color = colorScheme.primary, style = MiuixTheme.textStyles.main)
@@ -262,6 +429,7 @@ private fun SiteEditorDialog(site: SiteConfig?, onDismiss: () -> Unit) {
                             showError(R.string.site_port_conflict)
                             return@TextButton
                         }
+                        val engine = Engine.entries[engineIndex.coerceIn(0, Engine.entries.lastIndex)]
                         val finalName: String
                         if (isNew) {
                             val candidate = name.text.trim()
@@ -285,6 +453,7 @@ private fun SiteEditorDialog(site: SiteConfig?, onDismiss: () -> Unit) {
                                 name = finalName,
                                 port = portNum,
                                 enabled = enabled,
+                                engine = engine,
                                 enablePhp = enablePhp,
                                 directoryListing = dirListing,
                                 indexFiles = indexFiles.text.split(',').map { it.trim() }.filter { it.isNotEmpty() },
@@ -298,6 +467,7 @@ private fun SiteEditorDialog(site: SiteConfig?, onDismiss: () -> Unit) {
                             val edited = site!!.copy(
                                 port = portNum,
                                 enabled = enabled,
+                                engine = engine,
                                 enablePhp = enablePhp,
                                 directoryListing = dirListing,
                                 indexFiles = indexFiles.text.split(',').map { it.trim() }.filter { it.isNotEmpty() },
@@ -305,7 +475,8 @@ private fun SiteEditorDialog(site: SiteConfig?, onDismiss: () -> Unit) {
                                 phpExtensions = phpExtensions.text.split(',').map { it.trim() }.filter { it.isNotEmpty() }
                                     .ifEmpty { listOf("php") },
                             )
-                            val wasRunning = manager.isSiteRunning(edited.id)
+                            val wasRunning = manager.state.value.sites
+                                .firstOrNull { it.site.id == edited.id }?.running ?: false
                             manager.stopSite(edited.id)
                             manager.updateSites(config.sites.map { if (it.id == edited.id) edited else it })
                             if (wasRunning && edited.enabled) manager.startSite(edited)

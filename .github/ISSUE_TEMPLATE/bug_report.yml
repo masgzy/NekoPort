@@ -1,0 +1,63 @@
+name: "Bug 报告"
+description: "报告 NekoPort 的问题"
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢报告问题！**安全漏洞请勿在此提交**，请使用 [私密安全报告](https://github.com/masgzy/NekoPort/security/advisories/new)。
+  - type: dropdown
+    id: area
+    attributes:
+      label: 问题涉及的模块
+      options:
+        - 站点 / HTTP 服务（Nginx / Apache / Lighttpd）
+        - PHP
+        - FTP
+        - 文件管理
+        - UI / 其他
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: 应用版本
+      placeholder: "0.2.0"
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: 设备与系统
+      placeholder: "例：Pixel 6 / Android 15 / arm64"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      placeholder: |
+        1. 打开…
+        2. 点击…
+        3. 出现…
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 相关日志（日志页导出或复制）
+      render: shell
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: 确认
+      options:
+        - label: 已安装服务器组件且未卸载
+        - label: 已搜索是否已有相同 Issue

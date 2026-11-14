@@ -3,6 +3,21 @@ package io.github.masgzy.nekoport.core
 import kotlinx.serialization.Serializable
 
 /**
+ * HTTP engines bundled as real binaries (Termux builds of the upstream
+ * servers). Each site picks one engine and listens on its own port.
+ */
+enum class Engine(val id: String, val displayName: String) {
+    NGINX("nginx", "Nginx"),
+    APACHE("apache", "Apache"),
+    LIGHTTPD("lighttpd", "Lighttpd"),
+    ;
+
+    companion object {
+        fun byId(raw: String?): Engine = entries.firstOrNull { it.id == raw } ?: NGINX
+    }
+}
+
+/**
  * A single HTTP site (virtual host). Each site listens on its own port,
  * mirroring the "host" concept of classic Android web servers.
  */
@@ -12,6 +27,8 @@ data class SiteConfig(
     val name: String,
     val port: Int,
     val enabled: Boolean = true,
+    /** Which bundled real server binary serves this site. */
+    val engine: Engine = Engine.NGINX,
     val enablePhp: Boolean = false,
     val directoryListing: Boolean = true,
     /** Ordered index file candidates, e.g. ["index.html", "index.php"]. */
@@ -22,15 +39,15 @@ data class SiteConfig(
      */
     val phpDenyDirs: List<String> = listOf("uploads", "upload", "static"),
     /**
-     * Extensions routed to the php-cgi handler. Anything else is served as a
-     * static file (source stays visible but never executes) - this is the core
-     * of the php2shell mitigation.
+     * Extensions routed to php-fpm. Anything else is served as a static file
+     * (source stays visible but never executes) - this is the core of the
+     * php2shell mitigation.
      */
     val phpExtensions: List<String> = listOf("php"),
 ) {
     companion object {
         val NAME_REGEX = Regex("^[A-Za-z0-9_-]{1,64}$")
-        fun isPortValid(port: Int): Boolean = port in 1..65535
+        fun isPortValid(port: Int): Boolean = port in 1024..65535
     }
 }
 
@@ -51,10 +68,8 @@ data class FtpConfig(
 @Serializable
 data class AppSettings(
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
-    val accessLogEnabled: Boolean = true,
     val startOnBoot: Boolean = false,
     val phpMirror: String = PhpMirror.DEFAULT,
-    val installedPhpVersion: String? = null,
 )
 
 enum class ThemeMode { SYSTEM, LIGHT, DARK }

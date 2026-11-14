@@ -85,7 +85,7 @@ class ServerService : Service() {
                 getString(
                     R.string.notification_running_text,
                     runningSites,
-                    if (ftpRunning) getString(R.string.site_status_running).lowercase() else getString(R.string.home_ftp_status_disabled).lowercase(),
+                    if (ftpRunning) getString(R.string.site_status_running).lowercase() else getString(R.string.site_status_stopped).lowercase(),
                 )
             )
             .setContentIntent(openIntent)

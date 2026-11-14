@@ -23,8 +23,8 @@ android {
         // targetSdk is intentionally kept at 28 (same approach as Termux):
         // it allows executing the bundled/downloaded php-cgi runtime from app data.
         targetSdk = 28
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.0"
         resourceConfigurations += listOf("zh", "en")
     }
 
@@ -65,6 +65,10 @@ android {
         // targetSdk 28 is intentional (exec from app data, same as Termux); this
         // app is distributed via GitHub, not Google Play.
         disable += "ExpiredTargetSdkVersion"
+    }
+
+    buildFeatures {
+        buildConfig = true
     }
 }
 

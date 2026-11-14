@@ -4,64 +4,76 @@
     <string name="notification_channel_server">Server status</string>
     <string name="notification_running_title">NekoPort is running</string>
     <string name="notification_running_text">%1$d site(s) serving · FTP %2$s</string>
-    <string name="notification_stop_action">Stop all servers</string>
+    <string name="notification_stop_action">Stop all services</string>
 
-    <string name="tab_home">Home</string>
     <string name="tab_sites">Sites</string>
+    <string name="tab_ftp">FTP</string>
     <string name="tab_files">Files</string>
     <string name="tab_logs">Logs</string>
     <string name="tab_settings">Settings</string>
 
-    <string name="home_master_switch">Run all services</string>
-    <string name="home_master_switch_summary">Start all enabled sites and the FTP service, kept alive in the foreground notification</string>
-    <string name="home_network">Network addresses</string>
-    <string name="home_network_empty">No LAN address detected, please check your Wi-Fi</string>
-    <string name="home_http_card">Web server</string>
-    <string name="home_http_status_running">%1$d site(s) running</string>
-    <string name="home_http_status_stopped">Stopped</string>
-    <string name="home_ftp_card">FTP server</string>
-    <string name="home_ftp_status_running">Running · port %1$d</string>
-    <string name="home_ftp_status_disabled">Disabled</string>
-    <string name="home_php_card">PHP runtime</string>
-    <string name="home_php_not_installed">Not installed, install it in Settings</string>
-    <string name="home_php_version">PHP %1$s installed</string>
-    <string name="home_php_outdated_warning">This PHP version is vulnerable to php2shell, update to %1$s or newer</string>
-    <string name="home_site_card">Sites</string>
-    <string name="home_no_sites">No sites yet, create one on the Sites page</string>
-    <string name="home_open_browser">Open in browser</string>
-
+    <!-- Sites -->
+    <string name="sites_master_switch">Run all services</string>
+    <string name="sites_master_switch_summary">Start all enabled sites and FTP, kept alive by a foreground notification</string>
     <string name="sites_add">New site</string>
-    <string name="sites_empty">Tap the button below to create your first site</string>
+    <string name="sites_empty">Tap the button in the bottom-right corner to create your first site</string>
     <string name="site_name">Site name</string>
-    <string name="site_name_hint">e.g. my-site (creates a directory with the same name)</string>
     <string name="site_port">Listen port</string>
-    <string name="site_docroot">Site directory</string>
+    <string name="site_docroot">Document root</string>
+    <string name="site_engine">Server engine</string>
     <string name="site_enable_php">Enable PHP</string>
-    <string name="site_enable_php_summary">Handle .php files through the built-in FastCGI client with php-cgi</string>
+    <string name="site_enable_php_summary">PHP files handled by php-fpm (FastCGI), forwarded strictly by extension whitelist</string>
     <string name="site_dir_listing">Directory listing</string>
-    <string name="site_dir_listing_summary">Show directory structure when no index file exists</string>
+    <string name="site_dir_listing_summary">Show directory structure when no index file is present</string>
     <string name="site_index_files">Index files (comma separated)</string>
-    <string name="site_php_deny_dirs">Directories where PHP is denied (comma separated)</string>
-    <string name="site_php_deny_dirs_hint">e.g. uploads,upload,static — prevents webshells in upload directories</string>
+    <string name="site_php_deny_dirs">PHP-denied directories (comma separated)</string>
+    <string name="site_php_deny_dirs_hint">e.g. uploads,upload,static - prevents webshells in upload directories</string>
     <string name="site_php_extensions">PHP extension whitelist (comma separated)</string>
-    <string name="site_php_extensions_hint">Default is php only; non-listed extensions are served as static files</string>
+    <string name="site_php_extensions_hint">Default: php only; other extensions are served as static files</string>
+    <string name="site_php_not_installed">PHP runtime not installed yet - install the server components below first</string>
     <string name="site_enabled">Enable this site</string>
-    <string name="site_delete">Delete site</string>
-    <string name="site_delete_confirm">Delete site "%1$s"? The directory content is kept and can be removed in the Files page.</string>
-    <string name="site_created">Site created</string>
-    <string name="site_saved">Site saved</string>
-    <string name="site_deleted">Site deleted</string>
-    <string name="site_port_conflict">Port is already used by another site</string>
-    <string name="site_invalid_name">Site name may only contain letters, digits, underscore and hyphen</string>
-    <string name="site_invalid_port">Port must be between 1 and 65535</string>
     <string name="site_status_running">Running</string>
     <string name="site_status_stopped">Stopped</string>
+    <string name="site_status_no_runtime">Server components not installed - tap \"Install server components\" first</string>
     <string name="site_edit">Edit site</string>
     <string name="site_confirm">Save</string>
-    <string name="site_cancel">Cancel</string>
+    <string name="site_port_conflict">Port already used by another site</string>
+    <string name="site_invalid_name">Site name may only contain letters, digits, underscores and hyphens</string>
+    <string name="site_invalid_port">Port must be within 1024-65535</string>
 
+    <!-- Runtime -->
+    <string name="runtime_title">Server components</string>
+    <string name="runtime_ready">Ready</string>
+    <string name="runtime_missing">Not installed yet. Components are the real nginx / Apache / lighttpd / PHP-FPM / Pure-FTPd official binaries (from the Termux repository)</string>
+    <string name="runtime_install">Install server components</string>
+    <string name="runtime_installing">Installing server components…</string>
+    <string name="runtime_reinstall">Reinstall / update components</string>
+    <string name="runtime_uninstall">Uninstall components</string>
+    <string name="runtime_uninstall_confirm">All services will stop and cannot start until you reinstall. Uninstall now?</string>
+    <string name="runtime_install_failed">Install failed: %1$s</string>
+    <string name="runtime_note">Binaries come from the official Termux repository (native aarch64/arm/x86_64 builds), installed into the app private directory with hardened configs. First install needs network access, roughly 30-60 MB.</string>
+    <string name="settings_php_mirror">Download mirror</string>
+
+    <!-- FTP -->
+    <string name="ftp_enable">Enable FTP service</string>
+    <string name="ftp_status_running">Running · port %1$d</string>
+    <string name="ftp_status_stopped">Stopped</string>
+    <string name="ftp_connection">Connection info</string>
+    <string name="ftp_connection_hint">Connect with any FTP client (passive port range below)</string>
+    <string name="ftp_root_hint">The FTP root is the sites root (sites/), letting you manage every site\'s files after login</string>
+    <string name="ftp_account">FTP account</string>
+    <string name="ftp_username">Username</string>
+    <string name="ftp_password">Password</string>
+    <string name="ftp_generate">Generate random password</string>
+    <string name="ftp_ports">Ports</string>
+    <string name="ftp_port">FTP port</string>
+    <string name="ftp_pasv_start">Passive port start</string>
+    <string name="ftp_pasv_hint">Passive mode uses 32 consecutive ports starting at %1$d; clients must use passive mode</string>
+    <string name="ftp_save">Save and apply</string>
+
+    <!-- Files -->
     <string name="files_pick_site">Select site</string>
-    <string name="files_empty_dir">This directory is empty</string>
+    <string name="files_empty_dir">Empty directory</string>
     <string name="files_new_folder">New folder</string>
     <string name="files_new_file">New file</string>
     <string name="files_upload">Upload files</string>
@@ -70,15 +82,14 @@
     <string name="files_delete">Delete</string>
     <string name="files_share">Share / download</string>
     <string name="files_edit">Edit</string>
-    <string name="files_saved">Saved</string>
-    <string name="files_deleted">Deleted</string>
     <string name="files_uploaded">Upload finished</string>
     <string name="files_upload_failed">Upload failed: write was rejected</string>
-    <string name="files_too_large">File is larger than 256KB, only sharing is supported</string>
+    <string name="files_too_large">File exceeds 256KB - sharing only, no inline editing</string>
     <string name="files_confirm_delete">Delete %1$s?</string>
     <string name="files_content">File content</string>
 
-    <string name="logs_title">Logs</string>
+    <!-- Logs -->
+    <string name="logs_title">Runtime logs</string>
     <string name="logs_filter_all">All</string>
     <string name="logs_filter_access">Access</string>
     <string name="logs_filter_error">Errors</string>
@@ -86,39 +97,19 @@
     <string name="logs_clear">Clear logs</string>
     <string name="logs_empty">No logs yet</string>
 
+    <!-- Settings -->
     <string name="settings_theme">Theme mode</string>
     <string name="settings_theme_system">Follow system</string>
     <string name="settings_theme_light">Light</string>
     <string name="settings_theme_dark">Dark</string>
-    <string name="settings_ftp">FTP server</string>
-    <string name="settings_ftp_enable">Enable FTP server</string>
-    <string name="settings_ftp_port">FTP port</string>
-    <string name="settings_ftp_user">FTP username</string>
-    <string name="settings_ftp_password">FTP password</string>
-    <string name="settings_ftp_generate">Generate random password</string>
-    <string name="settings_ftp_pasv_start">Passive mode start port</string>
-    <string name="settings_php">PHP runtime</string>
-    <string name="settings_php_install">Download and install PHP</string>
-    <string name="settings_php_reinstall">Reinstall / update PHP</string>
-    <string name="settings_php_uninstall">Uninstall PHP</string>
-    <string name="settings_php_mirror">Download mirror</string>
-    <string name="settings_php_status_none">Not installed</string>
-    <string name="settings_php_status_version">Installed: PHP %1$s</string>
-    <string name="settings_php_status_downloading">Downloading %1$s</string>
-    <string name="settings_php_status_extracting">Installing %1$s</string>
-    <string name="settings_php_status_failed">Install failed: %1$s</string>
-    <string name="settings_php_ok">PHP %1$s includes the php2shell fix and is safe to use</string>
-    <string name="settings_php_outdated">PHP %1$s is below the safe version (%2$s) and is vulnerable to php2shell (session.upload_progress + LFI), updating is strongly recommended</string>
-    <string name="settings_php_note">The PHP runtime comes from the official Termux repository (aarch64/arm/x86_64) and is installed into the app private directory. php.ini ships with hardened security defaults.</string>
-    <string name="settings_security">Security hardening</string>
-    <string name="settings_security_summary">Access logging · sensitive file blocking · PHP execution protection for upload directories are enabled by default, see README "Security design"</string>
-    <string name="settings_access_log">Record access logs</string>
     <string name="settings_boot_start">Start services on boot</string>
     <string name="settings_boot_start_summary">Restore the previous service state after boot</string>
+    <string name="settings_security">Security hardening</string>
+    <string name="settings_security_summary">Real official server binaries · PHP extension whitelist · upload directory execution protection · dotfile (.htaccess/.git/.env) blocking · hardened php.ini - see README \"Security design\"</string>
     <string name="settings_about">About</string>
-    <string name="settings_about_summary">A web server for Android implemented from scratch · GPL-3.0-or-later\nOnly the feature set of KSWeb is referenced, all code is original</string>
+    <string name="settings_about_summary">Android web server bundling the real Nginx / Apache / Lighttpd / PHP-FPM / Pure-FTPd\nUI built with the miuix liquid-glass design</string>
     <string name="settings_github">GitHub repository</string>
-    <string name="settings_license">License: GPL-3.0-or-later</string>
+    <string name="settings_license">License: GPL-3.0-or-later · v%1$s</string>
 
     <string name="dialog_ok">OK</string>
     <string name="dialog_cancel">Cancel</string>

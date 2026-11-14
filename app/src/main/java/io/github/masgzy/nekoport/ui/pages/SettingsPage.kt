@@ -3,15 +3,14 @@ package io.github.masgzy.nekoport.ui.pages
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -21,16 +20,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
+import io.github.masgzy.nekoport.BuildConfig
 import io.github.masgzy.nekoport.NekoApp
 import io.github.masgzy.nekoport.R
-import io.github.masgzy.nekoport.core.AppLog
-import io.github.masgzy.nekoport.core.FtpConfig
 import io.github.masgzy.nekoport.core.PhpMirror
 import io.github.masgzy.nekoport.core.ThemeMode
-import io.github.masgzy.nekoport.php.PhpEnvironment
+import io.github.masgzy.nekoport.runtime.TermuxRuntime
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.DropdownItem
@@ -43,23 +40,25 @@ import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.OverlaySpinnerPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
-import java.security.SecureRandom
-import java.util.Locale
 
 @Composable
 fun SettingsPage(contentPadding: PaddingValues) {
     val manager = NekoApp.get().serverManager
+    val state by manager.state.collectAsState()
     val config by manager.config.collectAsState()
     val settings = config.settings
-    val ftp = config.ftp
     val colorScheme = MiuixTheme.colorScheme
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
     var themeIndex by remember { mutableStateOf(ThemeMode.entries.indexOf(settings.themeMode)) }
-    var phpBusy by remember { mutableStateOf(false) }
-    var phpProgress by remember { mutableStateOf<String?>(null) }
-    var phpError by remember { mutableStateOf<String?>(null) }
+    var installProgress by remember { mutableStateOf<String?>(null) }
+    var installError by remember { mutableStateOf<String?>(null) }
+    var showUninstallConfirm by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        manager.refreshRuntimeStatus()
+    }
 
     LazyColumn(
         contentPadding = contentPadding,
@@ -91,50 +90,31 @@ fun SettingsPage(contentPadding: PaddingValues) {
                     checked = settings.startOnBoot,
                     onCheckedChange = { manager.updateSettings(settings.copy(startOnBoot = it)) },
                 )
-                SwitchPreference(
-                    title = stringResource(R.string.settings_access_log),
-                    checked = settings.accessLogEnabled,
-                    onCheckedChange = {
-                        manager.updateSettings(settings.copy(accessLogEnabled = it))
-                        AppLog.accessLogEnabled = it
-                    },
-                )
             }
         }
 
-        // ---- FTP ----
+        // ---- Server runtime (real binaries) ----
         item {
-            SmallTitle(text = stringResource(R.string.settings_ftp))
+            SmallTitle(text = stringResource(R.string.runtime_title))
             Card {
-                FtpEditor(ftp = ftp, onSave = { manager.updateFtp(it) })
-            }
-        }
-
-        // ---- PHP runtime ----
-        item {
-            SmallTitle(text = stringResource(R.string.settings_php))
-            Card {
-                val installed = settings.installedPhpVersion
-                Text(
-                    text = installed?.let { stringResource(R.string.settings_php_status_version, it) }
-                        ?: stringResource(R.string.settings_php_status_none),
-                    color = colorScheme.onSurface,
-                    style = MiuixTheme.textStyles.main,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                )
-                if (installed != null) {
+                val versions = state.runtime.versions
+                if (versions.isEmpty()) {
                     Text(
-                        text = if (PhpMirror.isSafe(installed)) {
-                            stringResource(R.string.settings_php_ok, installed)
-                        } else {
-                            stringResource(R.string.settings_php_outdated, installed, PhpMirror.RECOMMENDED)
-                        },
+                        text = stringResource(R.string.runtime_missing),
                         color = colorScheme.onSurfaceVariantSummary,
-                        style = MiuixTheme.textStyles.subtitle,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                        style = MiuixTheme.textStyles.main,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
                     )
+                } else {
+                    versions.forEach { (pkg, version) ->
+                        ArrowPreference(
+                            title = pkg.label,
+                            summary = "v$version",
+                            onClick = { },
+                        )
+                    }
                 }
-                phpProgress?.let {
+                installProgress?.let {
                     Text(
                         text = it,
                         color = colorScheme.primary,
@@ -142,16 +122,16 @@ fun SettingsPage(contentPadding: PaddingValues) {
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                     )
                 }
-                phpError?.let {
+                installError?.let {
                     Text(
-                        text = stringResource(R.string.settings_php_status_failed, it),
+                        text = stringResource(R.string.runtime_install_failed, it),
                         color = colorScheme.primary,
                         style = MiuixTheme.textStyles.subtitle,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                     )
                 }
                 Text(
-                    text = stringResource(R.string.settings_php_note),
+                    text = stringResource(R.string.runtime_note),
                     color = colorScheme.onSurfaceVariantSummary,
                     style = MiuixTheme.textStyles.subtitle,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
@@ -163,54 +143,43 @@ fun SettingsPage(contentPadding: PaddingValues) {
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     TextButton(
-                        text = if (installed == null) {
-                            stringResource(R.string.settings_php_install)
+                        text = if (state.runtime.installed) {
+                            stringResource(R.string.runtime_reinstall)
                         } else {
-                            stringResource(R.string.settings_php_reinstall)
+                            stringResource(R.string.runtime_install)
                         },
-                        enabled = !phpBusy,
+                        enabled = installProgress == null,
                         onClick = {
-                            phpBusy = true
-                            phpError = null
+                            installProgress = context.getString(R.string.runtime_installing)
+                            installError = null
                             scope.launch {
-                                PhpEnvironment.install(context, settings.phpMirror) { progress ->
-                                    phpProgress = when (progress) {
-                                        is PhpEnvironment.Progress.Phase ->
-                                            when (progress.label.substringBefore(':')) {
-                                                "index" -> context.getString(R.string.settings_php_status_downloading, "index")
-                                                "resolve" -> context.getString(R.string.settings_php_status_downloading, "deps")
-                                                "extract" -> context.getString(R.string.settings_php_status_extracting, progress.label.substringAfter(':'))
-                                                else -> progress.label
-                                            }
-                                        is PhpEnvironment.Progress.Package ->
-                                            context.getString(
-                                                R.string.settings_php_status_downloading,
-                                                "${progress.name} (${progress.index}/${progress.total})",
-                                            )
-                                        is PhpEnvironment.Progress.Download ->
-                                            context.getString(
-                                                R.string.settings_php_status_downloading,
-                                                "${progress.name} ${progress.percent}%",
-                                            )
+                                val result = TermuxRuntime.install(context, settings.phpMirror) { progress ->
+                                    installProgress = when (progress) {
+                                        is TermuxRuntime.Progress.Package ->
+                                            "${progress.name} (${progress.index}/${progress.total})"
+                                        is TermuxRuntime.Progress.Download ->
+                                            "${progress.name} ${progress.percent}%"
+                                        is TermuxRuntime.Progress.Phase -> "..."
                                     }
-                                }.onSuccess { version ->
-                                    manager.setPhpVersion(version)
-                                    phpProgress = null
-                                }.onFailure {
-                                    phpError = it.message ?: "unknown error"
-                                    phpProgress = null
                                 }
-                                phpBusy = false
+                                result.fold(
+                                    onSuccess = {
+                                        installProgress = null
+                                        manager.refreshRuntimeStatus()
+                                    },
+                                    onFailure = {
+                                        installProgress = null
+                                        installError = it.message ?: "unknown error"
+                                    },
+                                )
                             }
                         },
                         modifier = Modifier.weight(1f),
                     )
                     TextButton(
-                        text = stringResource(R.string.settings_php_uninstall),
-                        enabled = installed != null && !phpBusy,
-                        onClick = {
-                            manager.uninstallPhp()
-                        },
+                        text = stringResource(R.string.runtime_uninstall),
+                        enabled = state.runtime.installed && installProgress == null,
+                        onClick = { showUninstallConfirm = true },
                         modifier = Modifier.weight(1f),
                     )
                 }
@@ -262,7 +231,7 @@ fun SettingsPage(contentPadding: PaddingValues) {
                     },
                 )
                 Text(
-                    text = stringResource(R.string.settings_license),
+                    text = stringResource(R.string.settings_license, BuildConfig.VERSION_NAME),
                     color = colorScheme.onSurfaceVariantSummary,
                     style = MiuixTheme.textStyles.subtitle,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -270,118 +239,34 @@ fun SettingsPage(contentPadding: PaddingValues) {
             }
         }
     }
-}
 
-@Composable
-private fun FtpEditor(ftp: FtpConfig, onSave: (FtpConfig) -> Unit) {
-    var enabled by remember { mutableStateOf(ftp.enabled) }
-    var port by remember { mutableStateOf(TextFieldValue(ftp.port.toString())) }
-    var username by remember { mutableStateOf(TextFieldValue(ftp.username)) }
-    var password by remember { mutableStateOf(TextFieldValue(ftp.password)) }
-    var pasvStart by remember { mutableStateOf(TextFieldValue(ftp.passivePortStart.toString())) }
-    var showConfirm by remember { mutableStateOf(false) }
-
-    SwitchPreference(
-        title = stringResource(R.string.settings_ftp_enable),
-        checked = enabled,
-        onCheckedChange = {
-            enabled = it
-            showConfirm = true
-        },
-    )
-    TextField(
-        value = port,
-        onValueChange = { port = it },
-        label = stringResource(R.string.settings_ftp_port),
-        useLabelAsPlaceholder = true,
-        singleLine = true,
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 6.dp),
-    )
-    TextField(
-        value = username,
-        onValueChange = { username = it },
-        label = stringResource(R.string.settings_ftp_user),
-        useLabelAsPlaceholder = true,
-        singleLine = true,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 6.dp),
-    )
-    TextField(
-        value = password,
-        onValueChange = { password = it },
-        label = stringResource(R.string.settings_ftp_password),
-        useLabelAsPlaceholder = true,
-        singleLine = true,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 6.dp),
-    )
-    TextButton(
-        text = stringResource(R.string.settings_ftp_generate),
-        onClick = {
-            val alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789"
-            val random = SecureRandom()
-            password = TextFieldValue(
-                (1..20).map { alphabet[random.nextInt(alphabet.length)] }.joinToString("")
-            )
-            showConfirm = true
-        },
-        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-    )
-    TextField(
-        value = pasvStart,
-        onValueChange = { pasvStart = it },
-        label = stringResource(R.string.settings_ftp_pasv_start),
-        useLabelAsPlaceholder = true,
-        singleLine = true,
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 6.dp),
-    )
-
-    if (showConfirm) {
+    if (showUninstallConfirm) {
         OverlayDialog(
             show = true,
-            title = stringResource(R.string.settings_ftp),
-            onDismissRequest = { showConfirm = false },
+            title = stringResource(R.string.runtime_uninstall),
+            summary = stringResource(R.string.runtime_uninstall_confirm),
+            onDismissRequest = { showUninstallConfirm = false },
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    TextButton(
-                        text = stringResource(R.string.dialog_cancel),
-                        onClick = {
-                            showConfirm = false
-                            // revert
-                            enabled = ftp.enabled
-                            port = TextFieldValue(ftp.port.toString())
-                            username = TextFieldValue(ftp.username)
-                            password = TextFieldValue(ftp.password)
-                            pasvStart = TextFieldValue(ftp.passivePortStart.toString())
-                        },
-                        modifier = Modifier.weight(1f),
-                    )
-                    TextButton(
-                        text = stringResource(R.string.dialog_ok),
-                        onClick = {
-                            val newFtp = ftp.copy(
-                                enabled = enabled,
-                                port = port.text.toIntOrNull()?.takeIf { FtpConfig.isPortValid(it) } ?: ftp.port,
-                                username = username.text.trim().ifEmpty { ftp.username },
-                                password = password.text.ifEmpty { ftp.password },
-                                passivePortStart = pasvStart.text.toIntOrNull()
-                                    ?.takeIf { FtpConfig.isPortValid(it) } ?: ftp.passivePortStart,
-                            )
-                            onSave(newFtp)
-                            showConfirm = false
-                        },
-                        modifier = Modifier.weight(1f),
-                    )
-                }
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                TextButton(
+                    text = stringResource(R.string.dialog_cancel),
+                    onClick = { showUninstallConfirm = false },
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(
+                    text = stringResource(R.string.dialog_ok),
+                    onClick = {
+                        scope.launch {
+                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                manager.stopAll()
+                                TermuxRuntime.uninstall(context)
+                            }
+                            manager.refreshRuntimeStatus()
+                            showUninstallConfirm = false
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                )
             }
         }
     }
