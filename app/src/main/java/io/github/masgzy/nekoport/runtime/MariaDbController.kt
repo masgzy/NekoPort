@@ -98,7 +98,9 @@ object MariaDbController {
             if (!client.exists()) return
             val pb = ProcessBuilder(
                 listOf(
-                    client.canonicalPath, "-u", "root",
+                    client.canonicalPath,
+                    "--socket=${File(TermuxRuntime.runDir(context), "mariadb.sock").canonicalPath}",
+                    "-u", "root",
                     "-e", "ALTER USER 'root'@'localhost' IDENTIFIED BY ''; FLUSH PRIVILEGES;",
                 ),
             )

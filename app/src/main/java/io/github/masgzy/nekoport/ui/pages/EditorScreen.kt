@@ -214,24 +214,31 @@ private fun EditorScreen(target: EditorTarget) {
                 )
             }
         } else {
-            BasicTextField(
-                value = text,
-                onValueChange = {
-                    text = it
-                    dirty = true
-                },
-                enabled = loaded,
+            // The field must size itself to its content (no fillMaxSize), with
+            // the outer column providing the scrolling viewport.
+            Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                textStyle = TextStyle(
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 12.sp,
-                    lineHeight = 17.sp,
-                    color = colorScheme.onSurface,
-                ),
-            )
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                BasicTextField(
+                    value = text,
+                    onValueChange = {
+                        text = it
+                        dirty = true
+                    },
+                    enabled = loaded,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    textStyle = TextStyle(
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 12.sp,
+                        lineHeight = 17.sp,
+                        color = colorScheme.onSurface,
+                    ),
+                )
+            }
         }
     }
 

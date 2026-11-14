@@ -164,6 +164,7 @@ object TermuxRuntime {
 
             val prefix = prefixDir(context)
             prefix.mkdirs()
+            migrateLegacyLayout(prefix)
             cacheDir(context).mkdirs()
 
             val base = mirror.trimEnd('/')
@@ -229,6 +230,25 @@ object TermuxRuntime {
         File(prefix, "libexec/apache2").listFiles()?.forEach { it.setExecutable(true, false) }
         File(prefix, "lib/lighttpd").listFiles()?.forEach { it.setExecutable(true, false) }
         File(prefix, "sbin").listFiles()?.forEach { it.setExecutable(true, false) }
+    }
+
+    /**
+     * v0.2.0 extracted packages with the full nested Termux path
+     * (`prefix/data/data/com.termux/files/usr/...`). Hoists those payloads up
+     * to the prefix root so the binaries land where we expect them.
+     */
+    private fun migrateLegacyLayout(prefix: File) {
+        val legacy = File(prefix, "data/data/com.termux/files/usr")
+        if (!legacy.isDirectory) return
+        AppLog.i(TAG, "migrating legacy nested package layout")
+        legacy.listFiles()?.forEach { child ->
+            val target = File(prefix, child.name)
+            if (!target.exists()) {
+                runCatching { child.renameTo(target) }
+                    .onFailure { AppLog.w(TAG, "migrate ${child.name} failed: ${it.message}") }
+            }
+        }
+        File(prefix, "data").deleteRecursively()
     }
 
     /**
