@@ -291,7 +291,7 @@ class ServerManager private constructor(private val context: Context) {
             setSiteStatus(site.id, context.getString(R.string.site_status_no_runtime))
             return@withContext
         }
-        val signature = siteSignature(site)
+        val signature = siteSignature(site) + "|" + _config.value.settings.localOnly
         if (ProcessController.isRunning("site-${site.id}-${site.engine.id}") &&
             siteSignatures[site.id] == signature
         ) {
@@ -302,10 +302,11 @@ class ServerManager private constructor(private val context: Context) {
         val dir = siteDocRoot(site).apply { mkdirs() }
         try {
             if (site.enablePhp) ensurePhpFpm()
+            val localOnly = _config.value.settings.localOnly
             val conf: File = when (site.engine) {
-                Engine.NGINX -> ConfigWriter.writeNginxConf(context, site, dir)
-                Engine.APACHE -> ConfigWriter.writeHttpdConf(context, site, dir)
-                Engine.LIGHTTPD -> ConfigWriter.writeLighttpdConf(context, site, dir)
+                Engine.NGINX -> ConfigWriter.writeNginxConf(context, site, dir, localOnly)
+                Engine.APACHE -> ConfigWriter.writeHttpdConf(context, site, dir, localOnly)
+                Engine.LIGHTTPD -> ConfigWriter.writeLighttpdConf(context, site, dir, localOnly)
             }
             val key = "site-${site.id}-${site.engine.id}"
             val launchLog = File(TermuxRuntime.logsDir(context), "$key-launch.log")
@@ -419,7 +420,7 @@ class ServerManager private constructor(private val context: Context) {
             return@withContext
         }
         val ftp = _config.value.ftp
-        val signature = ftpSignature(ftp)
+        val signature = ftpSignature(ftp) + "|" + _config.value.settings.localOnly
         if (ProcessController.isRunning("ftp") && ftpSignature == signature) return@withContext
         _state.value = _state.value.copy(
             ftpRunning = false,
@@ -429,7 +430,8 @@ class ServerManager private constructor(private val context: Context) {
         try {
             val (passwdFile, pdbFile) = ConfigWriter.pureDbFiles(context)
             setUpFtpUser(ftp, passwdFile, pdbFile)
-            val args = ConfigWriter.pureFtpdArgs(context, ftp.port, ftp.passivePortStart, pdbFile)
+            val bind = if (_config.value.settings.localOnly) "127.0.0.1" else "0.0.0.0"
+            val args = ConfigWriter.pureFtpdArgs(context, ftp.port, ftp.passivePortStart, pdbFile, bind)
             ProcessController.launch(
                 context, "ftp", ProcessController.binary(context, "pure-ftpd"), args,
                 File(TermuxRuntime.logsDir(context), "ftp.log"), sitesRoot,
@@ -499,7 +501,21 @@ class ServerManager private constructor(private val context: Context) {
             }
             for (account in accounts) {
                 val name = account.username.filter { it.isLetterOrDigit() || it in "._-" }.ifEmpty { "neko" }
-                val home = account.root.trim().ifEmpty { ftpRoot }
+                val requested = account.root.trim().ifEmpty { ftpRoot }
+                // Without chroot (Android forbids chroot(2) for app uids) an
+                // FTP login can read everything below its root. Refuse roots
+                // that point into sensitive app directories (config.json with
+                // the FTP credentials, the MariaDB data, binaries...) and fall
+                // back to the sites root; the UI blocks this on save too.
+                val home = if (isSensitiveFtpRoot(requested)) {
+                    AppLog.w(
+                        "Manager",
+                        "FTP account '$name': root '$requested' targets a sensitive app directory; using the sites root instead",
+                    )
+                    ftpRoot
+                } else {
+                    requested
+                }
                 val homeDir = File(home).apply { mkdirs() }
                 val (out, rc) = runPurePw(
                     purePw, listOf(
@@ -648,7 +664,7 @@ class ServerManager private constructor(private val context: Context) {
             _state.value = _state.value.copy(
                 mariaStatusText = context.getString(R.string.maria_status_starting),
             )
-            val failure = MariaDbController.start(context, _config.value.maria)
+            val failure = MariaDbController.start(context, _config.value.maria, _config.value.settings.localOnly)
             if (failure != null) {
                 if (!mariaStopRequested) {
                     _state.value = _state.value.copy(
@@ -701,6 +717,32 @@ class ServerManager private constructor(private val context: Context) {
     private fun ftpSignature(ftp: FtpConfig): String =
         (ftp.effectiveAccounts().joinToString(";") { "${it.username}|${it.password}|${it.root}" } +
             "|${ftp.port}|${ftp.passivePortStart}")
+
+    /**
+     * True when [path] points into a sensitive part of the app sandbox.
+     * Without chroot, FTP users can read everything below their root, so
+     * these are refused (UI validation + [setUpFtpUser] fallback):
+     *  - the app data dir itself (config.json holds the FTP credentials),
+     *    including databases / shared_prefs / the runtime tree;
+     *  - any ancestor of the data dir (/data, /data/user/0 ...);
+     *  - everything else below the data dir that is not under sites/.
+     * Shared storage (/sdcard/...) stays allowed - it is the documented
+     * use case for custom roots.
+     */
+    fun isSensitiveFtpRoot(path: String): Boolean {
+        val raw = path.trim()
+        if (raw.isEmpty()) return false
+        val canon = runCatching { File(raw).canonicalPath }.getOrDefault(raw)
+        val dataDir = runCatching { context.dataDir.canonicalPath }.getOrDefault("")
+        if (dataDir.isEmpty()) return false
+        val sites = sitesRoot.canonicalPath
+        val inSites = canon == sites || canon.startsWith("$sites/")
+        if (inSites) return false
+        val inData = canon == dataDir || canon.startsWith("$dataDir/")
+        val parentPrefix = if (canon.endsWith("/")) canon else "$canon/"
+        val ancestorOfData = (dataDir + "/").startsWith(parentPrefix)
+        return inData || ancestorOfData
+    }
 
     private fun publish() {
         val cfg = _config.value

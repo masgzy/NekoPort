@@ -18,6 +18,13 @@ object ProcessController {
 
     private const val TAG = "Proc"
 
+    /** Launch-log size cap within one process session (a runaway engine used
+     *  to be able to write GBs into runtime/logs until the disk filled up). */
+    private const val LAUNCH_LOG_CAP_BYTES = 8L * 1024 * 1024
+
+    /** Binaries whose orphaned instances may be reaped at app start. */
+    private val SERVER_BINARIES = setOf("mariadbd", "php-fpm", "nginx", "lighttpd", "httpd", "pure-ftpd")
+
     private val processes = ConcurrentHashMap<String, Process>()
     private val stopping = AtomicBoolean(false)
 
@@ -73,14 +80,25 @@ object ProcessController {
         processes[key] = process
 
         // Pump the process output into its log file (keeps pipes from filling).
+        // A per-session byte cap stops a chatty/crash-looping engine from
+        // growing the log without bound (the >4 MB trim above only runs on
+        // the NEXT launch).
         Thread({
             try {
+                var written = 0L
                 process.inputStream.bufferedReader().useLines { lines ->
                     logFile.appendText("") // touch
                     logFile.outputStream().use { out ->
                         lines.forEach { line ->
-                            out.write((line + "\n").toByteArray())
+                            if (written > LAUNCH_LOG_CAP_BYTES) return@useLines
+                            val bytes = (line + "\n").toByteArray()
+                            out.write(bytes)
+                            written += bytes.size
                             out.flush()
+                            if (written > LAUNCH_LOG_CAP_BYTES) {
+                                out.write("\n[nekoport] log truncated: launch output exceeded ${LAUNCH_LOG_CAP_BYTES / (1024 * 1024)} MB in this session\n".toByteArray())
+                                out.flush()
+                            }
                         }
                     }
                 }
@@ -150,5 +168,54 @@ object ProcessController {
             Thread.sleep(200)
         }
         return false
+    }
+
+    /**
+     * Kills server processes orphaned by a previous app death (LMK kill,
+     * crash). The daemons are plain ProcessBuilder children without
+     * PDEATHSIG, so they survive the app being killed: the next start then
+     * found "Address already in use" while the UI claimed everything was
+     * stopped (the process table is in-memory only).
+     *
+     * Matches only processes whose argv[0] lives inside the NekoPort runtime
+     * tree AND whose binary name is a known server; /proc entries of other
+     * uids are unreadable and therefore skipped. Must run once at app process
+     * start, before anything is launched (the in-memory process table is
+     * empty then, so tracked live processes cannot be killed by accident).
+     */
+    fun reapOrphanProcesses(context: Context): Int {
+        val runtimePath = runCatching { TermuxRuntime.runtimeRoot(context).canonicalPath }.getOrDefault("")
+        if (runtimePath.isEmpty()) return 0
+        val runtimePrefix = "$runtimePath/"
+        val myPid = android.os.Process.myPid()
+        var killed = 0
+        val pids = File("/proc").listFiles()?.filter { it.name.toIntOrNull() != null } ?: return 0
+        for (entry in pids) {
+            val pid = entry.name.toIntOrNull() ?: continue
+            if (pid == myPid) continue
+            val argv0 = runCatching {
+                java.io.FileInputStream(File(entry, "cmdline")).use { input ->
+                    val bytes = input.readBytes().toString(Charsets.UTF_8)
+                    bytes.substringBefore('\u0000').trim()
+                }
+            }.getOrElse { continue } // unreadable: other uid or already gone
+            if (argv0.isEmpty() || !argv0.startsWith(runtimePrefix)) continue
+            if (argv0.substringAfterLast('/') !in SERVER_BINARIES) continue
+            if (runCatching { android.os.Process.killProcess(pid) }.getOrDefault(false)) {
+                killed++
+                AppLog.w(TAG, "reaped orphan server process pid=$pid (${argv0.substringAfterLast('/')})")
+            }
+        }
+        // Stale pid files (nginx/php-fpm/mariadbd rewrite theirs on start;
+        // lighttpd's server.pid-file would keep pointing at a dead pid).
+        runCatching {
+            TermuxRuntime.runDir(context).listFiles { f -> f.name.endsWith(".pid") }?.forEach { pf ->
+                val dead = pf.readText().trim().toIntOrNull()
+                    ?.let { it != myPid && !File("/proc/$it").exists() } ?: true
+                if (dead) pf.delete()
+            }
+        }
+        if (killed > 0) AppLog.i(TAG, "orphan reaping done: $killed process(es) killed")
+        return killed
     }
 }

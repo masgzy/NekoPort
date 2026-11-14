@@ -34,6 +34,39 @@ object UpdateChecker {
     /** Re-checks are skipped within this window after a successful check. */
     private const val THROTTLE_MS = 60_000L
 
+    /**
+     * Debian-ish version comparison. String inequality used to flag ANY
+     * difference as an update, so a mirror rollback (or an epoch mismatch
+     * like `1:2.4.71` vs `2.4.71`) offered "downgrades" as updates.
+     */
+    internal fun isNewer(candidate: String, installed: String): Boolean {
+        val (candidateEpoch, candidateRest) = splitEpoch(candidate.trim())
+        val (installedEpoch, installedRest) = splitEpoch(installed.trim())
+        if (candidateEpoch != installedEpoch) return candidateEpoch > installedEpoch
+        val a = numericTokens(candidateRest)
+        val b = numericTokens(installedRest)
+        for (i in 0 until maxOf(a.size, b.size)) {
+            val x = a.getOrElse(i) { 0L }
+            val y = b.getOrElse(i) { 0L }
+            if (x != y) return x > y
+        }
+        return false
+    }
+
+    /** Splits `1:2.4.71` into (1, "2.4.71"); a missing/invalid epoch means 0. */
+    private fun splitEpoch(v: String): Pair<Long, String> {
+        val idx = v.indexOf(':')
+        if (idx > 0) {
+            val epoch = v.substring(0, idx).toLongOrNull()
+            if (epoch != null) return epoch to v.substring(idx + 1)
+        }
+        return 0L to v
+    }
+
+    /** Leading numeric value of every dot/dash/plus/tilde segment; missing segments count as 0. */
+    private fun numericTokens(v: String): List<Long> =
+        v.split('.', '-', '+', '~').map { part -> part.takeWhile { it.isDigit() }.toLongOrNull() ?: 0L }
+
     /** Serializes concurrent checks (settings page entry + manual button). */
     private val checkMutex = Mutex()
 
@@ -59,7 +92,7 @@ object UpdateChecker {
                 }.toMap()
             }
             val available = installed.mapNotNull { (pkg, recorded) ->
-                latest[pkg.packageName]?.takeIf { it != recorded }?.let { pkg to it.substringAfter(':', it) }
+                latest[pkg.packageName]?.takeIf { isNewer(it, recorded) }?.let { pkg to it.substringAfter(':', it) }
             }.toMap()
             AppLog.i(
                 "Update",

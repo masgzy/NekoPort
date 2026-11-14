@@ -300,7 +300,7 @@ private fun DashboardSiteCard(runtime: SiteRuntime) {
 
     fun openConf() {
         scope.launch(Dispatchers.IO) {
-            val auto = ConfigWriter.writeEngineConf(context, site, docRoot)
+            val auto = ConfigWriter.writeEngineConf(context, site, docRoot, manager.config.value.settings.localOnly)
             // Same hint as the sites tab: a pre-existing user config keeps
             // overriding the generated one even after UI-side changes.
             val preExisting = File(auto.parentFile, auto.name.removeSuffix(".auto")).exists()

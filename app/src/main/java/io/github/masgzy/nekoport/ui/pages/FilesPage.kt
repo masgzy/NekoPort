@@ -390,7 +390,14 @@ private fun FileActionDialog(
     var showEditor by remember { mutableStateOf(false) }
     var showRename by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
-    var editorContent by remember(file) { mutableStateOf(TextFieldValue(file.readTextSafely())) }
+    // Read on IO: the old remember(file) { readText() } performed a blocking
+    // up-to-256 KB read during composition - the file menu froze on slow
+    // shared storage.
+    var editorLoaded by remember(file) { mutableStateOf(false) }
+    var editorContent by produceState(initialValue = TextFieldValue(""), file) {
+        value = withContext(Dispatchers.IO) { TextFieldValue(file.readTextSafely()) }
+        editorLoaded = true
+    }
 
     if (showEditor) {
         OverlayDialog(
@@ -403,6 +410,13 @@ private fun FileActionDialog(
             },
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                if (!editorLoaded) {
+                    Text(
+                        text = stringResource(R.string.files_loading),
+                        color = colorScheme.onSurfaceVariantSummary,
+                        style = MiuixTheme.textStyles.subtitle,
+                    )
+                }
                 TextField(
                     value = editorContent,
                     onValueChange = { editorContent = it },

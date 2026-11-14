@@ -68,6 +68,14 @@ object TermuxRuntime {
     private const val USER_AGENT = "NekoPort/0.1"
 
     /**
+     * Download caps. Without them a malicious/broken mirror could fill the
+     * disk with an endless response (the deb cache lives in cacheDir).
+     * Largest real package (mariadb) is ~30 MB; the cap leaves generous headroom.
+     */
+    private const val MAX_DEB_BYTES = 256L * 1024 * 1024
+    private const val MAX_INDEX_BYTES = 32L * 1024 * 1024
+
+    /**
      * Termux packages ship their payload under
      * `data/data/com.termux/files/usr/...`; we strip that prefix so the
      * payload lands directly inside our own prefix directory.
@@ -593,6 +601,15 @@ object TermuxRuntime {
     data class Pkg(val name: String, val version: String, val depends: List<String>, val filename: String)
 
     private fun openConnection(url: String, connectTimeout: Int = 15000, readTimeout: Int = 30000): HttpURLConnection {
+        // Supply-chain hardening: the package index and every .deb are the
+        // trust root of the whole runtime. Cleartext HTTP mirrors would let
+        // anyone on the path swap binaries that are then chmod +x-ed and
+        // executed with the app uid - refuse them here even if an old
+        // config.json still carries an http:// mirror (the settings UI only
+        // accepts https:// now, and the manifest blocks cleartext traffic).
+        if (!url.startsWith("https://")) {
+            throw RepoException("insecure mirror URL blocked (only https:// is allowed)")
+        }
         val conn = URL(url).openConnection() as HttpURLConnection
         conn.connectTimeout = connectTimeout
         conn.readTimeout = readTimeout
@@ -607,7 +624,21 @@ object TermuxRuntime {
             openConnection(url).let { conn ->
                 conn.connect()
                 if (conn.responseCode != 200) throw RepoException("index HTTP ${conn.responseCode}")
-                conn.inputStream.use { it.readBytes().toString(Charsets.UTF_8) }
+                val declared = conn.contentLengthLong
+                if (declared > MAX_INDEX_BYTES) throw RepoException("package index too large: $declared bytes")
+                conn.inputStream.use { input ->
+                    val buffer = java.io.ByteArrayOutputStream()
+                    val buf = ByteArray(65536)
+                    var total = 0L
+                    while (true) {
+                        val n = input.read(buf)
+                        if (n < 0) break
+                        total += n
+                        if (total > MAX_INDEX_BYTES) throw RepoException("package index too large (>${MAX_INDEX_BYTES / (1024 * 1024)} MB)")
+                        buffer.write(buf, 0, n)
+                    }
+                    buffer.toString("UTF-8")
+                }
             }
         }.getOrElse { throw RepoException("cannot fetch package index: ${it.message}") }
 
@@ -683,6 +714,7 @@ object TermuxRuntime {
         conn.connect()
         if (conn.responseCode !in 200..299) throw RepoException("HTTP ${conn.responseCode} for ${pkg.name}")
         val total = conn.contentLengthLong
+        if (total > MAX_DEB_BYTES) throw RepoException("${pkg.name}: download too large (${total} bytes)")
         conn.inputStream.use { input ->
             FileOutputStream(target).use { out ->
                 val buf = ByteArray(65536)
@@ -690,8 +722,11 @@ object TermuxRuntime {
                 while (true) {
                     val n = input.read(buf)
                     if (n < 0) break
-                    out.write(buf, 0, n)
                     received += n
+                    if (received > MAX_DEB_BYTES) {
+                        throw RepoException("${pkg.name}: download exceeded ${MAX_DEB_BYTES / (1024 * 1024)} MB cap (chunked response?)")
+                    }
+                    out.write(buf, 0, n)
                     if (total > 0) {
                         val percent = (received * 100 / total).toInt().coerceIn(0, 100)
                         if (percent % 10 == 0) onPercent(percent)
@@ -746,10 +781,22 @@ object TermuxRuntime {
                                         // relocation. Strip the prefix and pin
                                         // absolute targets to the new prefix.
                                         val linkTarget = relocateLinkTarget(entry.linkName, dest, target.parentFile)
-                                        java.nio.file.Files.createSymbolicLink(
-                                            target.toPath(),
-                                            linkTarget.toPath(),
-                                        )
+                                        // A hostile package can create a link
+                                        // pointing OUTSIDE the prefix (e.g.
+                                        // `lib -> ../../../..`); later file
+                                        // writes would still be caught by the
+                                        // canonical-path check, but
+                                        // markExecutables/patchBakedPaths walk
+                                        // through directory links. Refuse any
+                                        // target that resolves outside dest.
+                                        if (linkTargetEscapesDest(entry.linkName, dest, target.parentFile)) {
+                                            AppLog.w(TAG, "refusing symlink outside prefix: ${entry.name} -> ${entry.linkName}")
+                                        } else {
+                                            java.nio.file.Files.createSymbolicLink(
+                                                target.toPath(),
+                                                linkTarget.toPath(),
+                                            )
+                                        }
                                     }.onFailure {
                                         AppLog.w(TAG, "symlink failed for ${entry.name}: ${it.message}")
                                     }
@@ -800,5 +847,41 @@ object TermuxRuntime {
             rel = rel.substring(TERMUX_PAYLOAD_PREFIX.length)
         }
         return File(dest, rel)
+    }
+
+    /**
+     * Pure path-normalization check (no filesystem access): does the link
+     * target, resolved against the link's directory, land inside [dest]?
+     * `..` segments are resolved by popping the path stack - skipping them
+     * would let `lib -> ../../../..` pass as "inside the prefix".
+     */
+    private fun linkTargetEscapesDest(linkName: String, dest: File, parentDir: File?): Boolean {
+        val raw = linkName.trim()
+        if (raw.isEmpty()) return false
+        val base = if (raw.startsWith("/")) {
+            // Absolute targets were already pinned below dest by
+            // [relocateLinkTarget]; check the raw form the same way.
+            val rel = raw.trimStart('/').let {
+                if (it.startsWith(TERMUX_PAYLOAD_PREFIX)) it.substring(TERMUX_PAYLOAD_PREFIX.length) else it
+            }
+            File(dest, rel)
+        } else {
+            File(parentDir ?: dest, raw)
+        }
+        val destPath = dest.canonicalFile.path
+        val parts = ArrayDeque<String>()
+        for (segment in base.path.split('/')) {
+            when (segment) {
+                "", "." -> {}
+                ".." -> {
+                    // Climbing above the path root escapes unconditionally.
+                    if (parts.isEmpty()) return true
+                    parts.removeLast()
+                }
+                else -> parts.addLast(segment)
+            }
+        }
+        val norm = "/" + parts.joinToString("/")
+        return !(norm == destPath || norm.startsWith("$destPath/"))
     }
 }

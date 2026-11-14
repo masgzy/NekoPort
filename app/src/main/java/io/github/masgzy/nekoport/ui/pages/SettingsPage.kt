@@ -149,6 +149,12 @@ fun SettingsPage(contentPadding: PaddingValues) {
                     checked = settings.startOnBoot,
                     onCheckedChange = { manager.updateSettings(settings.copy(startOnBoot = it)) },
                 )
+                SwitchPreference(
+                    title = stringResource(R.string.settings_local_only),
+                    summary = stringResource(R.string.settings_local_only_summary),
+                    checked = settings.localOnly,
+                    onCheckedChange = { manager.updateSettings(settings.copy(localOnly = it)) },
+                )
                 if (!batteryIgnored) {
                     ArrowPreference(
                         title = stringResource(R.string.settings_battery),
@@ -348,7 +354,10 @@ private fun CustomMirrorDialog(
                     text = stringResource(R.string.dialog_ok),
                     onClick = {
                         val value = url.text.trim()
-                        if (value.startsWith("http://") || value.startsWith("https://")) {
+                        // https:// only: the package index and every .deb are
+                        // executed after extraction - a cleartext mirror is a
+                        // remote-code-execution vector on hostile networks.
+                        if (value.startsWith("https://")) {
                             onSave(value)
                         } else {
                             showError = true

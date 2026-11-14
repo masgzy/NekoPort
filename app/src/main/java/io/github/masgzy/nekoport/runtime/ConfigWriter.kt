@@ -96,10 +96,10 @@ object ConfigWriter {
             .distinct()
 
     /** Regenerates the `.auto` config of [site]'s engine (used before editing). */
-    fun writeEngineConf(context: Context, site: SiteConfig, docroot: File): File = when (site.engine) {
-        Engine.NGINX -> writeNginxConf(context, site, docroot)
-        Engine.APACHE -> writeHttpdConf(context, site, docroot)
-        Engine.LIGHTTPD -> writeLighttpdConf(context, site, docroot)
+    fun writeEngineConf(context: Context, site: SiteConfig, docroot: File, localOnly: Boolean = false): File = when (site.engine) {
+        Engine.NGINX -> writeNginxConf(context, site, docroot, localOnly)
+        Engine.APACHE -> writeHttpdConf(context, site, docroot, localOnly)
+        Engine.LIGHTTPD -> writeLighttpdConf(context, site, docroot, localOnly)
     }
 
     private fun indexList(site: SiteConfig) =
@@ -112,7 +112,7 @@ object ConfigWriter {
     // nginx
     // ------------------------------------------------------------------
 
-    fun writeNginxConf(context: Context, site: SiteConfig, docroot: File): File {
+    fun writeNginxConf(context: Context, site: SiteConfig, docroot: File, localOnly: Boolean = false): File {
         val prefix = TermuxRuntime.prefixDir(context)
         val run = runDir(context)
         val sock = siteSocket(context, site.id)
@@ -157,7 +157,7 @@ object ConfigWriter {
                 "    server_tokens off;\n" +
                 "    access_log ${quoted(siteAccessLog(context, site.id, Engine.NGINX))};\n" +
                 "    server {\n" +
-                "        listen ${site.port};\n" +
+                "        listen ${if (localOnly) "127.0.0.1:" else ""}${site.port};\n" +
                 "        server_name _;\n" +
                 "        root ${quoted(docroot)};\n" +
                 "        index ${indexList(site)};\n" +
@@ -184,9 +184,12 @@ object ConfigWriter {
     // ------------------------------------------------------------------
 
     private fun apacheModule(name: String, prefix: File) =
-        "LoadModule $name ${File(File(prefix, "libexec/apache2"), "mod_$name.so").canonicalPath}\n"
+        "LoadModule $name ${File(File(prefix, "libexec/apache2"), "mod_" + name.removeSuffix("_module") + ".so").canonicalPath}\n"
 
-    fun writeHttpdConf(context: Context, site: SiteConfig, docroot: File): File {
+    /** Loopback bind when [localOnly], else all interfaces (previous behavior). */
+    private fun bindHost(localOnly: Boolean) = if (localOnly) "127.0.0.1" else "0.0.0.0"
+
+    fun writeHttpdConf(context: Context, site: SiteConfig, docroot: File, localOnly: Boolean = false): File {
         val prefix = TermuxRuntime.prefixDir(context)
         val run = runDir(context)
         val conf = engineConfAuto(context, site.id, Engine.APACHE)
@@ -228,7 +231,7 @@ object ConfigWriter {
                 "ServerRoot ${quoted(TermuxRuntime.runtimeRoot(context))}\n" +
                 "ServerName localhost\n" +
                 "PidFile ${quoted(File(run, "apache-${site.id}.pid"))}\n" +
-                "Listen ${site.port}\n" +
+                "Listen ${if (localOnly) "127.0.0.1:" else ""}${site.port}\n" +
                 "\n" +
                 "ErrorLog ${quoted(siteErrorLog(context, site.id, Engine.APACHE))}\n" +
                 "LogLevel warn\n" +
@@ -282,7 +285,7 @@ object ConfigWriter {
     // lighttpd
     // ------------------------------------------------------------------
 
-    fun writeLighttpdConf(context: Context, site: SiteConfig, docroot: File): File {
+    fun writeLighttpdConf(context: Context, site: SiteConfig, docroot: File, localOnly: Boolean = false): File {
         val run = runDir(context)
         val conf = engineConfAuto(context, site.id, Engine.LIGHTTPD)
         val sock = siteSocket(context, site.id)
@@ -311,7 +314,7 @@ object ConfigWriter {
                 "server.modules = (\"mod_accesslog\")\n" +
                 "\n" +
                 "server.port = ${site.port}\n" +
-                "server.bind = \"0.0.0.0\"\n" +
+                "server.bind = \"${bindHost(localOnly)}\"\n" +
                 "server.document-root = ${quoted(docroot)}\n" +
                 "server.errorlog = ${quoted(siteErrorLog(context, site.id, Engine.LIGHTTPD))}\n" +
                 "accesslog.filename = ${quoted(siteAccessLog(context, site.id, Engine.LIGHTTPD))}\n" +
@@ -400,7 +403,9 @@ object ConfigWriter {
             sb.appendLine()
             sb.appendLine("[site-${site.id}]")
             sb.appendLine("listen = ${sock.canonicalPath}")
-            sb.appendLine("listen.mode = 0666")
+            // Same-uid consumers only (engines run as the app uid); no reason
+            // to leave the FastCGI socket world-readable inside run/.
+            sb.appendLine("listen.mode = 0660")
             sb.appendLine("pm = dynamic")
             sb.appendLine("pm.max_children = 4")
             sb.appendLine("pm.start_servers = 1")
@@ -428,10 +433,24 @@ object ConfigWriter {
     // Pure-FTPd
     // ------------------------------------------------------------------
 
-    fun pureFtpdArgs(context: Context, port: Int, passiveStart: Int, pdbFile: File): List<String> = listOf(
+    /**
+     * pure-ftpd command line. NO `-A` here on purpose: chroot(2) needs
+     * CAP_SYS_CHROOT which Android untrusted-app uids do not have (pure-ftpd
+     * dies with 421 "Unable to set up a secure chroot() jail" right after
+     * USER/PASS when built --with-nonroot, verified against pure-ftpd 1.0.54
+     * src/ftpd.c). Without -A logins work; the trade-off - FTP users can
+     * browse the whole app sandbox - is documented in the UI and README, and
+     * the UI refuses account roots that point into sensitive app directories.
+     */
+    fun pureFtpdArgs(
+        context: Context,
+        port: Int,
+        passiveStart: Int,
+        pdbFile: File,
+        bind: String = "0.0.0.0",
+    ): List<String> = listOf(
         "-4",                          // IPv4 only
-        "-S", "0.0.0.0,$port",
-        "-A",                          // chroot everyone (best effort without root)
+        "-S", "$bind,$port",
         "-H",                          // don't resolve host names
         "-f", "none",                  // no syslog on Android
         "-l", "puredb:${pdbFile.canonicalPath}",
@@ -457,13 +476,14 @@ object ConfigWriter {
      * app sandbox; the database listens on localhost only unless the user
      * explicitly allows LAN connections.
      */
-    fun writeMariaCnf(context: Context, maria: MariaConfig, datadir: File): File {
+    fun writeMariaCnf(context: Context, maria: MariaConfig, datadir: File, localOnly: Boolean = false): File {
         val cnf = mariaCnfAuto(context)
         val prefix = TermuxRuntime.prefixDir(context)
         val run = runDir(context)
         val logs = logsDir(context)
         val tmp = TermuxRuntime.tmpDir(context)
-        val bind = if (maria.allowRemote) "0.0.0.0" else "127.0.0.1"
+        // settings.localOnly is a global override: it wins over allowRemote.
+        val bind = if (localOnly || !maria.allowRemote) "127.0.0.1" else "0.0.0.0"
         cnf.writeText(
             BANNER +
                 "[mysqld]\n" +

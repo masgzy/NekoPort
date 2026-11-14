@@ -30,7 +30,10 @@ data class SiteConfig(
     /** Which bundled real server binary serves this site. */
     val engine: Engine = Engine.LIGHTTPD,
     val enablePhp: Boolean = false,
-    val directoryListing: Boolean = true,
+    /** Directory listing is opt-in now: an open index on an untrusted Wi-Fi
+     *  hands the whole file layout to the LAN (existing configs keep their
+     *  explicitly stored value). */
+    val directoryListing: Boolean = false,
     /** Ordered index file candidates, e.g. ["index.html", "index.php"]. */
     val indexFiles: List<String> = listOf("index.html", "index.htm", "index.php"),
     /**
@@ -162,6 +165,11 @@ data class CronConfig(
 data class AppSettings(
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val startOnBoot: Boolean = false,
+    /** Bind every generated listener (HTTP engines + FTP) to 127.0.0.1
+     *  instead of 0.0.0.0: for use on untrusted Wi-Fi. MariaDB keeps its own
+     *  allowRemote switch, which localOnly overrides. Default false keeps the
+     *  historical LAN-visible behavior. */
+    val localOnly: Boolean = false,
     /** Termux repository base URL used to fetch the runtime packages.
      *  Defaults to Tsinghua (fast + reliable inside China); the official
      *  Termux mirror stays selectable in settings. */

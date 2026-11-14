@@ -24,6 +24,12 @@ class NekoApp : Application() {
         if (persisted.isNotEmpty()) {
             AppLog.i("NekoApp", "restored ${persisted.size} log lines from previous session")
         }
+        // The daemons survive the app being killed (no PDEATHSIG): reap them
+        // before anything launches again, or the next startAll hits
+        // "Address already in use" while the UI claims everything is stopped.
+        Thread {
+            runCatching { io.github.masgzy.nekoport.runtime.ProcessController.reapOrphanProcesses(this@NekoApp) }
+        }.apply { isDaemon = true }.start()
         rotateDefaultFtpPassword()
         AppLog.i("NekoApp", "NekoPort started")
     }

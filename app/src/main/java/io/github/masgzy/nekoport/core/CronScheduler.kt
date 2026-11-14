@@ -32,7 +32,11 @@ class CronScheduler(
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var job: Job? = null
-    private val nextFire = ConcurrentHashMap<Long, Long>()
+
+    /** Cached next-fire time per task id, keyed together with the expression
+     *  it was computed from - re-arming a task with a new expression used to
+     *  keep the OLD schedule until the stale time passed. */
+    private val nextFire = ConcurrentHashMap<Long, Pair<String, Long>>()
     private val running = ConcurrentHashMap<Long, Boolean>()
 
     /** (Re)arms the scheduler according to [config]. */
@@ -69,12 +73,21 @@ class CronScheduler(
         val now = System.currentTimeMillis()
         for (task in config.tasks) {
             if (!task.enabled) continue
-            val next = nextFire[task.id]
-                ?: CronParser.nextFire(task.expr, now - 60_000)
-                ?: continue
+            val cached = nextFire[task.id]
+            val next = if (cached != null && cached.first == task.expr) {
+                cached.second
+            } else {
+                // Recompute strictly after `now`: a just-created task whose
+                // expression matches the current minute fires at its NEXT
+                // occurrence, not immediately (the old now-60_000 base made
+                // it execute once right away).
+                val fresh = CronParser.nextFire(task.expr, now) ?: continue
+                nextFire[task.id] = task.expr to fresh
+                fresh
+            }
             if (now >= next) {
                 // Avoid double-firing on rapid ticks: schedule strictly after `now`.
-                nextFire[task.id] = CronParser.nextFire(task.expr, now) ?: Long.MAX_VALUE
+                nextFire[task.id] = task.expr to (CronParser.nextFire(task.expr, now) ?: Long.MAX_VALUE)
                 if (running.putIfAbsent(task.id, true) == null) {
                     scope.launch {
                         try {

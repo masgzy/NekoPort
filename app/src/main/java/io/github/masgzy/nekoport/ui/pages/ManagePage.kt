@@ -167,7 +167,7 @@ private fun EnginePanel(engine: Engine) {
                     title = stringResource(R.string.site_edit_conf),
                     onClick = {
                         scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                            val auto = ConfigWriter.writeEngineConf(context, site, manager.siteDocRoot(site))
+                            val auto = ConfigWriter.writeEngineConf(context, site, manager.siteDocRoot(site), manager.config.value.settings.localOnly)
                             val file = ConfigWriter.ensureUserCopy(auto)
                             OverlayBus.openEditor(
                                 EditorTarget(

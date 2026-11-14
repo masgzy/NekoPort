@@ -23,12 +23,15 @@ import io.github.masgzy.nekoport.NekoApp
 import io.github.masgzy.nekoport.R
 import io.github.masgzy.nekoport.core.ServerService
 import io.github.masgzy.nekoport.runtime.ConfigWriter
+import io.github.masgzy.nekoport.runtime.MariaDbController
 import io.github.masgzy.nekoport.runtime.RuntimePackage
 import io.github.masgzy.nekoport.runtime.TermuxRuntime
 import io.github.masgzy.nekoport.ui.OverlayBus
 import io.github.masgzy.nekoport.ui.component.CopyableText
 import io.github.masgzy.nekoport.ui.component.NekoSmallTitle
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Text
 import io.github.masgzy.nekoport.ui.component.NekoTextButton
@@ -56,6 +59,13 @@ fun MariaPanel() {
     var installProgress by remember { mutableStateOf<String?>(null) }
     var installError by remember { mutableStateOf<String?>(null) }
     var versionDetails by remember { mutableStateOf<String?>(null) }
+
+    // V3 hardening: turning on LAN access requires an explicit warning dialog
+    // (root starts with an empty password - anyone on the Wi-Fi would get the
+    // full database), and root's password can be changed in place.
+    var showRemoteWarn by remember { mutableStateOf(false) }
+    var showPasswordDialog by remember { mutableStateOf(false) }
+    var rootPasswordCustom by remember { mutableStateOf(MariaDbController.isRootPasswordCustom(context)) }
 
     val mariaVersion = state.runtime.versions[RuntimePackage.MARIADB]
     val mariaInstalled = remember(state.runtime.versions) {
@@ -204,7 +214,24 @@ fun MariaPanel() {
                     title = stringResource(R.string.maria_allow_remote),
                     summary = stringResource(R.string.maria_allow_remote_summary),
                     checked = maria.allowRemote,
-                    onCheckedChange = { manager.updateMaria(maria.copy(allowRemote = it)) },
+                    onCheckedChange = { on ->
+                        if (on) {
+                            // Enabling LAN access with a (default) empty root
+                            // password exposes every database without
+                            // credentials; require an explicit confirmation.
+                            showRemoteWarn = true
+                        } else {
+                            manager.updateMaria(maria.copy(allowRemote = false))
+                        }
+                    },
+                )
+                ArrowPreference(
+                    title = stringResource(R.string.maria_set_root_pw),
+                    summary = stringResource(
+                        if (rootPasswordCustom) R.string.maria_set_root_pw_custom
+                        else R.string.maria_set_root_pw_empty,
+                    ),
+                    onClick = { showPasswordDialog = true },
                 )
                 TextField(
                     value = port,
@@ -259,7 +286,10 @@ fun MariaPanel() {
                     summary = ConfigWriter.mariaCnf(context).canonicalPath,
                     onClick = {
                         scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                            ConfigWriter.writeMariaCnf(context, config.maria, ConfigWriter.mariaDataDir(context))
+                            ConfigWriter.writeMariaCnf(
+                                context, config.maria, ConfigWriter.mariaDataDir(context),
+                                config.settings.localOnly,
+                            )
                             val file = ConfigWriter.ensureUserCopy(ConfigWriter.mariaCnfAuto(context))
                             OverlayBus.openEditor(
                                 EditorTarget(
@@ -306,6 +336,135 @@ fun MariaPanel() {
                     onClick = { versionDetails = null },
                     modifier = Modifier.fillMaxWidth(),
                 )
+            }
+        }
+    }
+
+    // LAN-access confirmation: with the default empty root password the whole
+    // database would be readable/writable by anyone on the network.
+    if (showRemoteWarn) {
+        OverlayDialog(
+            show = true,
+            title = stringResource(R.string.maria_remote_warn_title),
+            onDismissRequest = { showRemoteWarn = false },
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    text = stringResource(R.string.maria_remote_warn_text),
+                    color = colorScheme.primary,
+                    style = MiuixTheme.textStyles.main,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    NekoTextButton(
+                        text = stringResource(R.string.dialog_cancel),
+                        onClick = { showRemoteWarn = false },
+                        modifier = Modifier.weight(1f),
+                    )
+                    NekoTextButton(
+                        text = stringResource(R.string.maria_remote_warn_confirm),
+                        onClick = {
+                            manager.updateMaria(maria.copy(allowRemote = true))
+                            showRemoteWarn = false
+                        },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+        }
+    }
+
+    // Root password management: set / change / clear in place. Without this
+    // the only way was raw SQL, and the startup probe used to clear whatever
+    // the user set (fixed: user passwords are detected and respected).
+    if (showPasswordDialog) {
+        var currentPw by remember { mutableStateOf(TextFieldValue("")) }
+        var newPw by remember { mutableStateOf(TextFieldValue("")) }
+        var confirmPw by remember { mutableStateOf(TextFieldValue("")) }
+        var pwError by remember { mutableStateOf<String?>(null) }
+        var pwBusy by remember { mutableStateOf(false) }
+        OverlayDialog(
+            show = true,
+            title = stringResource(R.string.maria_set_root_pw),
+            summary = stringResource(R.string.maria_set_root_pw_summary),
+            onDismissRequest = { if (!pwBusy) showPasswordDialog = false },
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                TextField(
+                    value = currentPw,
+                    onValueChange = { currentPw = it },
+                    label = stringResource(R.string.maria_pw_current),
+                    useLabelAsPlaceholder = false,
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                TextField(
+                    value = newPw,
+                    onValueChange = { newPw = it },
+                    label = stringResource(R.string.maria_pw_new),
+                    useLabelAsPlaceholder = false,
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                TextField(
+                    value = confirmPw,
+                    onValueChange = { confirmPw = it },
+                    label = stringResource(R.string.maria_pw_confirm),
+                    useLabelAsPlaceholder = false,
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                pwError?.let {
+                    CopyableText(
+                        text = it,
+                        color = colorScheme.primary,
+                        style = MiuixTheme.textStyles.subtitle,
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    NekoTextButton(
+                        text = stringResource(R.string.dialog_cancel),
+                        enabled = !pwBusy,
+                        onClick = { showPasswordDialog = false },
+                        modifier = Modifier.weight(1f),
+                    )
+                    NekoTextButton(
+                        text = stringResource(R.string.maria_pw_apply),
+                        enabled = !pwBusy,
+                        onClick = {
+                            when {
+                                !state.mariaRunning ->
+                                    pwError = context.getString(R.string.maria_pw_need_running)
+                                newPw.text != confirmPw.text ->
+                                    pwError = context.getString(R.string.maria_pw_mismatch)
+                                else -> {
+                                    pwBusy = true
+                                    scope.launch(Dispatchers.IO) {
+                                        val result = MariaDbController.setRootPassword(
+                                            context, maria, currentPw.text, newPw.text,
+                                        )
+                                        withContext(Dispatchers.Main) {
+                                            pwBusy = false
+                                            result.fold(
+                                                onSuccess = {
+                                                    rootPasswordCustom = newPw.text.isNotEmpty()
+                                                    showPasswordDialog = false
+                                                },
+                                                onFailure = {
+                                                    pwError = context.getString(
+                                                        R.string.maria_pw_failed,
+                                                        it.message ?: "unknown",
+                                                    )
+                                                },
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
             }
         }
     }

@@ -166,7 +166,7 @@ private fun SiteCard(runtime: SiteRuntime, onEdit: () -> Unit) {
 
     fun openConf() {
         scope.launch(Dispatchers.IO) {
-            val auto = ConfigWriter.writeEngineConf(context, site, docRoot)
+            val auto = ConfigWriter.writeEngineConf(context, site, docRoot, manager.config.value.settings.localOnly)
             // A pre-existing user config KEEPS overriding the generated one -
             // after changing e.g. the port in the UI the site would still
             // listen on the old port while the UI shows the new one. Warn in
@@ -294,7 +294,7 @@ private fun SiteEditorDialog(site: SiteConfig?, onDismiss: () -> Unit) {
     }
     var enabled by remember { mutableStateOf(site?.enabled ?: true) }
     var enablePhp by remember { mutableStateOf(site?.enablePhp ?: false) }
-    var dirListing by remember { mutableStateOf(site?.directoryListing ?: true) }
+    var dirListing by remember { mutableStateOf(site?.directoryListing ?: false) }
     var indexFiles by remember {
         mutableStateOf(TextFieldValue(site?.indexFiles?.joinToString(",") ?: "index.html,index.htm,index.php"))
     }
@@ -306,6 +306,20 @@ private fun SiteEditorDialog(site: SiteConfig?, onDismiss: () -> Unit) {
     }
     var docRoot by remember { mutableStateOf(TextFieldValue(site?.docRoot ?: "")) }
     var error by remember { mutableStateOf<String?>(null) }
+    // B6: a user-editable conf file silently overrides every generated
+    // value - after changing the port in the UI the server kept listening on
+    // the old one. Ask whether to delete the custom conf when saving.
+    var pendingConfEdit by remember { mutableStateOf<Pair<SiteConfig, List<File>>?>(null) }
+
+    fun applyEdit(edited: SiteConfig) {
+        val wasRunning = manager.state.value.sites
+            .firstOrNull { it.site.id == edited.id }?.running ?: false
+        scope.launch(Dispatchers.IO) {
+            if (wasRunning) manager.stopSite(edited.id)
+            manager.updateSites(config.sites.map { if (it.id == edited.id) edited else it })
+            if (wasRunning && edited.enabled) manager.startSite(edited)
+        }
+    }
 
     fun showError(res: Int) {
         error = context.getString(res)
@@ -386,6 +400,20 @@ private fun SiteEditorDialog(site: SiteConfig?, onDismiss: () -> Unit) {
                 color = colorScheme.onSurfaceVariantSummary,
                 style = MiuixTheme.textStyles.subtitle,
             )
+            // open_basedir follows the doc root: pointing it at the storage
+            // ROOT would let any PHP code read the whole shared storage.
+            val storageRoot = remember {
+                runCatching {
+                    android.os.Environment.getExternalStorageDirectory().canonicalPath
+                }.getOrDefault("/sdcard")
+            }
+            if (docRoot.text.trim().trimEnd('/') == storageRoot) {
+                Text(
+                    text = stringResource(R.string.site_docroot_sdcard_warning),
+                    color = colorScheme.primary,
+                    style = MiuixTheme.textStyles.subtitle,
+                )
+            }
             SwitchPreference(
                 title = stringResource(R.string.site_enabled),
                 checked = enabled,
@@ -555,18 +583,60 @@ private fun SiteEditorDialog(site: SiteConfig?, onDismiss: () -> Unit) {
                                     .ifEmpty { listOf("php") },
                                 docRoot = docRoot.text.trim(),
                             )
-                            val wasRunning = manager.state.value.sites
-                                .firstOrNull { it.site.id == edited.id }?.running ?: false
-                            scope.launch(Dispatchers.IO) {
-                                if (wasRunning) manager.stopSite(edited.id)
-                                manager.updateSites(config.sites.map { if (it.id == edited.id) edited else it })
-                                if (wasRunning && edited.enabled) manager.startSite(edited)
+                            // A user conf (old or new engine) wins over every
+                            // generated value; offer to drop it so the new
+                            // settings actually take effect.
+                            val confFiles = listOf(site.engine, engine).distinct()
+                                .map { ConfigWriter.engineConf(context, edited.id, it) }
+                                .filter { it.exists() }
+                            if (confFiles.isNotEmpty()) {
+                                pendingConfEdit = edited to confFiles
+                                return@NekoTextButton
                             }
+                            applyEdit(edited)
                         }
                         onDismiss()
                     },
                     modifier = Modifier.weight(1f),
                 )
+            }
+        }
+    }
+
+    // Shown when the save hit an existing user-editable conf file: it wins
+    // over every generated value, so the new settings would silently not
+    // apply. Deleting it lets the .auto (regenerated from the new settings)
+    // take over; the editor's "恢复默认" button does the same thing.
+    pendingConfEdit?.let { (edited, files) ->
+        OverlayDialog(
+            show = true,
+            title = stringResource(R.string.site_conf_override_title),
+            summary = stringResource(R.string.site_conf_override_text),
+            onDismissRequest = { pendingConfEdit = null },
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    text = files.joinToString("\n") { it.name },
+                    color = colorScheme.onSurfaceVariantSummary,
+                    style = MiuixTheme.textStyles.subtitle,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    NekoTextButton(
+                        text = stringResource(R.string.dialog_cancel),
+                        onClick = { pendingConfEdit = null },
+                        modifier = Modifier.weight(1f),
+                    )
+                    NekoTextButton(
+                        text = stringResource(R.string.site_conf_override_apply),
+                        onClick = {
+                            files.forEach { runCatching { it.delete() } }
+                            applyEdit(edited)
+                            pendingConfEdit = null
+                            onDismiss()
+                        },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
             }
         }
     }

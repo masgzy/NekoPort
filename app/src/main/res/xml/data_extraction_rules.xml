@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 12+ device-to-device migration (D2D) rules. The legacy
+  fullBackupContent below only covers cloud backups; without
+  dataExtractionRules the platform default carried config.json - which holds
+  every FTP account password in plain text - through "换机克隆" transfers.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="file" path="config.json" />
+        <exclude domain="file" path="runtime" />
+        <exclude domain="file" path="sites" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="file" path="config.json" />
+        <exclude domain="file" path="runtime" />
+        <exclude domain="file" path="sites" />
+    </device-transfer>
+</data-extraction-rules>

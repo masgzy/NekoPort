@@ -49,6 +49,7 @@
     <string name="site_docroot_default">默认目录</string>
     <string name="site_docroot_sdcard">/sdcard</string>
     <string name="site_docroot_hint">可将站点根目录设为内部存储（如 /sdcard/htdocs）；目录不存在时会自动创建，首次使用会申请存储权限</string>
+    <string name="site_docroot_sdcard_warning">警告：根目录指向存储根目录时，PHP 脚本可读写整个共享存储（照片、下载等）。建议使用 /sdcard 下的专用子目录。</string>
     <string name="site_engine">服务器引擎</string>
     <string name="site_enable_php">启用 PHP</string>
     <string name="site_enable_php_summary">通过 php-fpm（FastCGI）处理 PHP 文件，按扩展名白名单精确转发</string>
@@ -69,6 +70,9 @@
     <string name="site_edit">编辑站点</string>
     <string name="site_edit_conf">配置文件</string>
     <string name="site_conf_custom">自定义配置 · 优先生效</string>
+    <string name="site_conf_override_title">检测到自定义配置</string>
+    <string name="site_conf_override_text">该站点存在自定义配置文件，其优先级高于应用生成的配置 —— 不删除的话，本次修改（端口、目录等）不会实际生效。是否删除自定义配置并保存？</string>
+    <string name="site_conf_override_apply">删除并保存</string>
     <string name="site_open_log">日志文件</string>
     <string name="site_confirm">保存</string>
     <string name="site_port_conflict">端口已被其他站点占用</string>
@@ -122,7 +126,7 @@
     <string name="mirror_custom_summary">输入 Termux 软件源根地址（dists/stable/…）</string>
     <string name="mirror_url">镜像地址</string>
     <string name="mirror_current">当前源：%1$s</string>
-    <string name="mirror_invalid">地址需以 http:// 或 https:// 开头</string>
+    <string name="mirror_invalid">地址必须以 https:// 开头（组件会被解包执行，明文镜像存在被篡改风险）</string>
 
     <!-- MariaDB -->
     <string name="maria_component_title">MySQL (MariaDB)</string>
@@ -142,6 +146,20 @@
     <string name="maria_allow_remote_summary">默认仅监听 127.0.0.1；开启后监听所有网卡，数据库将暴露给局域网，请注意安全</string>
     <string name="maria_port">MySQL 端口</string>
     <string name="maria_root_hint">数据目录位于应用私有空间（runtime/mariadb/data），与站点目录隔离。修改端口或绑定方式后点击「保存并应用」重启生效。</string>
+    <string name="maria_set_root_pw">设置 root 密码</string>
+    <string name="maria_set_root_pw_summary">为 MySQL root 设置密码；应用不会重置你设置的密码</string>
+    <string name="maria_set_root_pw_custom">已设置密码（受保护，不会被自动重置）</string>
+    <string name="maria_set_root_pw_empty">当前为空密码（默认）</string>
+    <string name="maria_pw_current">当前密码（无密码可留空）</string>
+    <string name="maria_pw_new">新密码</string>
+    <string name="maria_pw_confirm">确认新密码</string>
+    <string name="maria_pw_apply">应用密码</string>
+    <string name="maria_pw_need_running">请先启动 MySQL 服务，再修改密码</string>
+    <string name="maria_pw_mismatch">两次输入的新密码不一致</string>
+    <string name="maria_pw_failed">修改失败：%1$s</string>
+    <string name="maria_remote_warn_title">开启局域网连接？</string>
+    <string name="maria_remote_warn_text">数据库将监听所有网卡。如果 root 仍为空密码，局域网内任何设备无需凭据即可读写全部数据库！强烈建议先用「设置 root 密码」创建密码。</string>
+    <string name="maria_remote_warn_confirm">我已了解风险，开启</string>
     <string name="maria_save">保存并应用</string>
     <string name="maria_files">文件</string>
     <string name="maria_edit_conf">配置文件 my.cnf</string>
@@ -199,6 +217,9 @@
     <string name="ftp_pasv_start">被动模式起始端口</string>
     <string name="ftp_pasv_hint">被动模式使用端口 %1$d 起连续 32 个端口，客户端需支持被动模式</string>
     <string name="ftp_pasv_invalid">被动端口段超出 65535（%1$d + 32），请调低起始端口</string>
+    <string name="ftp_port_in_pasv">FTP 端口 %1$d 不能落在自身被动端口段内</string>
+    <string name="ftp_account_root_sensitive">账户根目录 %1$s 指向应用敏感目录（含配置或数据库），已拒绝保存</string>
+    <string name="ftp_sandbox_warning">安全提示：Android 禁止应用使用 chroot，FTP 登录后可访问其根目录下的全部应用文件（包括配置与数据库）。请勿将 FTP 凭据告诉不可信的人，并避免使用弱密码。</string>
     <string name="ftp_port_conflict">端口 %1$d 已被站点或 MySQL 占用</string>
     <string name="ftp_pasv_conflict">被动端口段与站点或 MySQL 端口冲突</string>
     <string name="ftp_save">保存并应用</string>
@@ -224,6 +245,7 @@
     <string name="files_too_large">文件超过 256KB，仅支持分享，不支持在线编辑</string>
     <string name="files_confirm_delete">删除 %1$s？</string>
     <string name="files_content">文件内容</string>
+    <string name="files_loading">正在读取文件…</string>
 
     <!-- Logs -->
     <string name="logs_title">运行日志</string>
@@ -266,6 +288,8 @@
     <string name="settings_theme_dark">深色</string>
     <string name="settings_boot_start">开机自动启动服务</string>
     <string name="settings_boot_start_summary">开机后自动恢复上次的服务状态</string>
+    <string name="settings_local_only">仅本机监听</string>
+    <string name="settings_local_only_summary">所有 HTTP 站点与 FTP 只绑定 127.0.0.1，局域网无法访问（公共 Wi-Fi 下建议开启；重启服务后生效）</string>
     <string name="settings_battery">忽略电池优化</string>
     <string name="settings_battery_summary">保持服务长期存活：建议允许 NekoPort 在后台不被省电策略杀死</string>
     <string name="settings_about">关于</string>

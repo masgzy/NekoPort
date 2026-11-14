@@ -137,6 +137,17 @@ fun FtpPanel() {
                     style = MiuixTheme.textStyles.subtitle,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
+                Text(
+                    // Android untrusted apps cannot chroot(): FTP users can
+                    // browse the whole app sandbox below their root. Say so
+                    // instead of pretending there is an isolation that does
+                    // not exist (the -A flag used to die with 421 and broke
+                    // every login).
+                    text = stringResource(R.string.ftp_sandbox_warning),
+                    color = colorScheme.primary,
+                    style = MiuixTheme.textStyles.subtitle,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
             }
         }
 
@@ -279,6 +290,13 @@ fun FtpPanel() {
                         errorText = context.getString(R.string.ftp_pasv_invalid)
                         return@NekoTextButton
                     }
+                    // The FTP control port must not sit inside its own passive
+                    // range (previously configurable; data connections could
+                    // steal the listener's port and the server misbehaved).
+                    if (portNum in pasvNum..(pasvNum + 32)) {
+                        errorText = context.getString(R.string.ftp_port_in_pasv, portNum)
+                        return@NekoTextButton
+                    }
                     // Global port dedup: FTP must not collide with the site
                     // ports or the MariaDB port.
                     if (config.sites.any { it.port == portNum } || config.maria.port == portNum) {
@@ -287,6 +305,16 @@ fun FtpPanel() {
                     }
                     if (config.sites.any { it.port in pasvNum..(pasvNum + 32) } || config.maria.port in pasvNum..(pasvNum + 32)) {
                         errorText = context.getString(R.string.ftp_pasv_conflict)
+                        return@NekoTextButton
+                    }
+                    // Without chroot (Android forbids chroot(2) for app uids)
+                    // an FTP login can read everything below its root: refuse
+                    // roots that would expose config.json / the MariaDB data /
+                    // the runtime binaries. ServerManager re-checks this on
+                    // every start as a second line of defense.
+                    val badRoot = extras.map { it.root }.firstOrNull { manager.isSensitiveFtpRoot(it) }
+                    if (badRoot != null) {
+                        errorText = context.getString(R.string.ftp_account_root_sensitive, badRoot)
                         return@NekoTextButton
                     }
                     errorText = null

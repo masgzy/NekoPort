@@ -2,5 +2,10 @@
 <paths>
     <files-path name="sites" path="sites/" />
     <files-path name="php" path="php/" />
-    <cache-path name="cache" path="/" />
+    <!-- Files shared from the file manager can also live on shared storage
+         (the Files tab browses /sdcard); without this entry FileProvider
+         refused every external file. The previous catch-all
+         cache-path path="/" exposed the whole cache dir (incl. runtime-debs)
+         for any granted URI - removed on purpose. -->
+    <external-path name="sdcard" path="." />
 </paths>
