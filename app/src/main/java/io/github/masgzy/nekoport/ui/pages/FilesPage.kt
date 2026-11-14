@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -394,8 +395,11 @@ private fun FileActionDialog(
     // up-to-256 KB read during composition - the file menu froze on slow
     // shared storage.
     var editorLoaded by remember(file) { mutableStateOf(false) }
-    var editorContent by produceState(initialValue = TextFieldValue(""), file) {
-        value = withContext(Dispatchers.IO) { TextFieldValue(file.readTextSafely()) }
+    var editorContent by remember(file) { mutableStateOf(TextFieldValue("")) }
+    // produceState returns an immutable State, so the editor's onValueChange
+    // could not write back; load through a LaunchedEffect instead, still on IO.
+    LaunchedEffect(file) {
+        editorContent = withContext(Dispatchers.IO) { TextFieldValue(file.readTextSafely()) }
         editorLoaded = true
     }
 

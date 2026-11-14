@@ -201,7 +201,9 @@ object ProcessController {
             }.getOrElse { continue } // unreadable: other uid or already gone
             if (argv0.isEmpty() || !argv0.startsWith(runtimePrefix)) continue
             if (argv0.substringAfterLast('/') !in SERVER_BINARIES) continue
-            if (runCatching { android.os.Process.killProcess(pid) }.getOrDefault(false)) {
+            // killProcess returns void, not a Boolean: success means "did not
+            // throw" (kill(2) failures surface as SecurityException etc.).
+            if (runCatching { android.os.Process.killProcess(pid) }.isSuccess) {
                 killed++
                 AppLog.w(TAG, "reaped orphan server process pid=$pid (${argv0.substringAfterLast('/')})")
             }
