@@ -17,14 +17,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -56,9 +54,10 @@ import io.github.masgzy.nekoport.ui.component.NekoTextButton
 import io.github.masgzy.nekoport.ui.component.animation.pressFeedback
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.ChevronForward
+import top.yukonga.miuix.kmp.icon.extended.Edit
 import top.yukonga.miuix.kmp.icon.extended.Folder
-import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
+import io.github.masgzy.nekoport.ui.component.IconAction
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import java.io.File
 
@@ -271,17 +270,44 @@ private fun DashboardSiteCard(runtime: SiteRuntime) {
     val colorScheme = MiuixTheme.colorScheme
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var showMore by rememberSaveable(runtime.site.id) { mutableStateOf(false) }
     val site = runtime.site
     val url = "http://localhost:${site.port}"
     val lanIp = remember(runtime.site.id) { NetUtils.localAddresses().firstOrNull() }
+    val docRoot = manager.siteDocRoot(site)
+
+    fun openBrowser(target: String) {
+        runCatching {
+            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(target)))
+        }.onFailure {
+            Toast.makeText(
+                context,
+                context.getString(R.string.dashboard_no_browser),
+                Toast.LENGTH_SHORT,
+            ).show()
+        }
+    }
+
+    fun openConf() {
+        scope.launch(Dispatchers.IO) {
+            val auto = ConfigWriter.writeEngineConf(context, site, docRoot)
+            val file = ConfigWriter.ensureUserCopy(auto)
+            OverlayBus.openEditor(
+                EditorTarget(
+                    title = "${site.name} · ${site.engine.displayName}",
+                    file = file,
+                    resetAction = { ConfigWriter.resetToAuto(auto) },
+                ),
+            )
+        }
+    }
 
     Card {
-        // Header: name + engine tag + status.
+        // Header: name + engine tag + status, then the edit (pen) and folder
+        // shortcuts - the pen sits LEFT of the folder icon.
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                .padding(horizontal = 16.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(modifier = Modifier.weight(1f)) {
@@ -305,68 +331,73 @@ private fun DashboardSiteCard(runtime: SiteRuntime) {
                     },
                     color = colorScheme.onSurfaceVariantSummary,
                     style = MiuixTheme.textStyles.subtitle,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
-            Icon(
-                imageVector = MiuixIcons.Folder,
+            IconAction(
+                icon = {
+                    Icon(
+                        imageVector = MiuixIcons.Edit,
+                        contentDescription = stringResource(R.string.dashboard_edit_site),
+                        tint = colorScheme.primary,
+                    )
+                },
+                contentDescription = stringResource(R.string.dashboard_edit_site),
+                onClick = {
+                    NekoNav.editSite(site.id)
+                    NekoNav.goToTab(AppRoot.tabIndexOf(NekoTab.SITES))
+                },
+            )
+            IconAction(
+                icon = {
+                    Icon(
+                        imageVector = MiuixIcons.Folder,
+                        contentDescription = stringResource(R.string.dashboard_open_files_manager),
+                        tint = colorScheme.primary,
+                    )
+                },
                 contentDescription = stringResource(R.string.dashboard_open_files_manager),
-                tint = colorScheme.primary,
-                modifier = Modifier
-                    .size(22.dp)
-                    .clip(RoundedCornerShape(6.dp))
-                    .clickable { NekoNav.openFiles(manager.siteDocRoot(site)) }
-                    .padding(2.dp),
+                onClick = { NekoNav.openFiles(docRoot) },
             )
         }
 
-        // Address row (tap = open in browser; the folder icon above enters
-        // the built-in file manager at the site root).
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable {
-                    runCatching {
-                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-                    }.onFailure {
-                        Toast.makeText(
-                            context,
-                            context.getString(R.string.dashboard_no_browser),
-                            Toast.LENGTH_SHORT,
-                        ).show()
-                    }
-                }
-                .padding(horizontal = 16.dp, vertical = 4.dp),
-        ) {
-            Text(
-                text = url + if (lanIp != null) "   ·   http://$lanIp:${site.port}" else "",
-                color = colorScheme.primary,
-                style = MiuixTheme.textStyles.subtitle,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+        // Address rows: each address opens ITSELF in the browser (the whole
+        // row used to open localhost regardless of which text was tapped).
+        AddressRow(
+            label = stringResource(R.string.dashboard_local_addr),
+            address = url,
+            colorScheme = colorScheme,
+            onClick = { openBrowser(url) },
+        )
+        if (lanIp != null) {
+            AddressRow(
+                label = stringResource(R.string.dashboard_lan_addr),
+                address = "http://$lanIp:${site.port}",
+                colorScheme = colorScheme,
+                onClick = { openBrowser("http://$lanIp:${site.port}") },
             )
         }
 
-        // Folder row with the three actions.
-        val docRoot = manager.siteDocRoot(site)
+        // Site path.
+        Text(
+            text = docRoot.canonicalPath,
+            color = colorScheme.onSurfaceVariantSummary,
+            style = MiuixTheme.textStyles.subtitle,
+            maxLines = 1,
+            overflow = TextOverflow.MiddleEllipsis,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 2.dp),
+        )
+
+        // Actions: open folder / config file / log file (the "编辑文件",
+        // "编辑站点" and "更多" buttons are gone - edit moved into the
+        // header pen icon, config & log are one tap away here).
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = docRoot.canonicalPath,
-                color = colorScheme.onSurfaceVariantSummary,
-                style = MiuixTheme.textStyles.subtitle,
-                maxLines = 1,
-                overflow = TextOverflow.MiddleEllipsis,
-                modifier = Modifier.weight(1f),
-            )
-        }
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 4.dp),
+                .padding(horizontal = 12.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             NekoTextButton(
@@ -375,49 +406,12 @@ private fun DashboardSiteCard(runtime: SiteRuntime) {
                 modifier = Modifier.weight(1f),
             )
             NekoTextButton(
-                text = stringResource(R.string.dashboard_edit_files),
-                onClick = { NekoNav.openFiles(docRoot) },
+                text = stringResource(R.string.dashboard_open_conf),
+                onClick = { openConf() },
                 modifier = Modifier.weight(1f),
             )
             NekoTextButton(
-                text = stringResource(R.string.site_edit),
-                onClick = {
-                    NekoNav.editSite(site.id)
-                    NekoNav.goToTab(AppRoot.tabIndexOf(NekoTab.SITES))
-                },
-                modifier = Modifier.weight(1f),
-            )
-        }
-
-        // "More" reveals the config/log entries (hidden by default).
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.End,
-        ) {
-            NekoTextButton(
-                text = if (showMore) stringResource(R.string.dashboard_less) else stringResource(R.string.dashboard_more),
-                onClick = { showMore = !showMore },
-            )
-        }
-        if (showMore) {
-            ArrowPreference(
-                title = stringResource(R.string.site_edit_conf),
-                onClick = {
-                    scope.launch(Dispatchers.IO) {
-                        val auto = ConfigWriter.writeEngineConf(context, site, manager.siteDocRoot(site))
-                        val file = ConfigWriter.ensureUserCopy(auto)
-                        OverlayBus.openEditor(
-                            EditorTarget(
-                                title = "${site.name} · ${site.engine.displayName}",
-                                file = file,
-                                resetAction = { ConfigWriter.resetToAuto(auto) },
-                            ),
-                        )
-                    }
-                },
-            )
-            ArrowPreference(
-                title = stringResource(R.string.site_open_log),
+                text = stringResource(R.string.dashboard_open_log),
                 onClick = {
                     OverlayBus.openEditor(
                         EditorTarget(
@@ -427,7 +421,38 @@ private fun DashboardSiteCard(runtime: SiteRuntime) {
                         ),
                     )
                 },
+                modifier = Modifier.weight(1f),
             )
         }
+    }
+}
+
+/** One address row: small caption + the full URL; tapping opens that URL. */
+@Composable
+private fun AddressRow(
+    label: String,
+    address: String,
+    colorScheme: top.yukonga.miuix.kmp.theme.Colors,
+    onClick: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .pressFeedback(cornerRadius = 8.dp)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 2.dp),
+    ) {
+        Text(
+            text = label,
+            color = colorScheme.onSurfaceVariantSummary,
+            style = MiuixTheme.textStyles.subtitle,
+        )
+        Text(
+            text = address,
+            color = colorScheme.primary,
+            style = MiuixTheme.textStyles.main,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }

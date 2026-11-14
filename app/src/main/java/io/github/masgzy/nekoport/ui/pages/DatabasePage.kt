@@ -26,6 +26,7 @@ import io.github.masgzy.nekoport.runtime.ConfigWriter
 import io.github.masgzy.nekoport.runtime.RuntimePackage
 import io.github.masgzy.nekoport.runtime.TermuxRuntime
 import io.github.masgzy.nekoport.ui.OverlayBus
+import io.github.masgzy.nekoport.ui.component.CopyableText
 import io.github.masgzy.nekoport.ui.component.NekoSmallTitle
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Card
@@ -144,6 +145,15 @@ fun MariaPanel() {
                         }
                     },
                 )
+                // Bootstrap/startup failure details; long-press copies.
+                if (!state.mariaRunning && state.mariaStatusText != null) {
+                    CopyableText(
+                        text = state.mariaStatusText!!,
+                        color = MiuixTheme.colorScheme.primary,
+                        style = MiuixTheme.textStyles.subtitle,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    )
+                }
             }
 
             // Connection info
@@ -175,10 +185,17 @@ fun MariaPanel() {
                         summary = mariaVersion,
                         onClick = {
                             // Full `mariadbd --version` output in a dialog;
-                            // the row previously had a no-op click handler.
+                            // falls back to the recorded index version when
+                            // the probe fails (e.g. broken component), so the
+                            // row never feels unresponsive.
                             scope.launch(kotlinx.coroutines.Dispatchers.IO) {
                                 versionDetails = TermuxRuntime.rawVersionOutput(context, RuntimePackage.MARIADB)
-                                    ?: "mariadbd --version failed"
+                                    ?: TermuxRuntime.recordedVersion(context, RuntimePackage.MARIADB)
+                                        ?.let {
+                                            "mariadbd $it\n\n(mariadbd --version 执行失败；" +
+                                                "组件可能不完整，请在设置中更新或重装服务器组件)"
+                                        }
+                                    ?: "mariadbd 不存在，请在设置中安装服务器组件"
                             }
                         },
                     )
@@ -270,7 +287,7 @@ fun MariaPanel() {
         }
     }
 
-    // Version details dialog (tapping the version row).
+    // Version details dialog (tapping the version row); long-press copies.
     versionDetails?.let { details ->
         OverlayDialog(
             show = true,
@@ -278,7 +295,7 @@ fun MariaPanel() {
             onDismissRequest = { versionDetails = null },
         ) {
             Column(modifier = Modifier.fillMaxWidth()) {
-                Text(
+                CopyableText(
                     text = details,
                     color = MiuixTheme.colorScheme.onSurface,
                     style = MiuixTheme.textStyles.subtitle,

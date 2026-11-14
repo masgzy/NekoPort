@@ -38,6 +38,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import io.github.masgzy.nekoport.BuildConfig
@@ -47,7 +48,10 @@ import io.github.masgzy.nekoport.core.TermuxMirror
 import io.github.masgzy.nekoport.core.ThemeMode
 import io.github.masgzy.nekoport.runtime.RuntimePackage
 import io.github.masgzy.nekoport.runtime.TermuxRuntime
+import io.github.masgzy.nekoport.runtime.UpdateChecker
 import io.github.masgzy.nekoport.ui.OverlayBus
+import io.github.masgzy.nekoport.ui.component.CopyableText
+import io.github.masgzy.nekoport.ui.component.IconAction
 import io.github.masgzy.nekoport.ui.component.NekoSmallTitle
 import io.github.masgzy.nekoport.ui.component.NekoTextButton
 import io.github.masgzy.nekoport.ui.component.animation.pressFeedback
@@ -61,6 +65,7 @@ import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Delete
 import top.yukonga.miuix.kmp.icon.extended.Download
 import top.yukonga.miuix.kmp.icon.extended.Refresh
+import top.yukonga.miuix.kmp.icon.extended.Search
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.OverlaySpinnerPreference
@@ -86,6 +91,10 @@ fun SettingsPage(contentPadding: PaddingValues) {
 
     LaunchedEffect(Unit) {
         manager.refreshRuntimeStatus()
+        // Check for component updates every time the settings page opens
+        // (throttled inside UpdateChecker); rows with an update turn their
+        // update icon yellow, rows without stay grey.
+        UpdateChecker.check(context, settings.repoMirror)
     }
 
     val pinnedLabels = TermuxMirror.PINNED.map { it.label }
@@ -371,12 +380,14 @@ private fun RuntimeComponentsCard() {
     val manager = NekoApp.get().serverManager
     val state by manager.state.collectAsState()
     val config by manager.config.collectAsState()
+    val updateState by UpdateChecker.state.collectAsState()
     val colorScheme = MiuixTheme.colorScheme
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
     // progress text keyed by package name; busy = any operation running
     var progressFor by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var batchProgress by remember { mutableStateOf<String?>(null) }
     var errorText by remember { mutableStateOf<String?>(null) }
     var confirmUninstall by remember { mutableStateOf<RuntimePackage?>(null) }
     var confirmUninstallAll by remember { mutableStateOf(false) }
@@ -394,6 +405,7 @@ private fun RuntimeComponentsCard() {
 
     suspend fun runInstall(roots: List<RuntimePackage>?, force: Boolean, progressKey: String) {
         progressFor = progressKey to context.getString(R.string.runtime_installing)
+        if (progressKey == "__all__") batchProgress = context.getString(R.string.runtime_installing)
         errorText = null
         val result = TermuxRuntime.install(context, config.settings.repoMirror, roots, force) { progress ->
             val label = when (progress) {
@@ -401,12 +413,23 @@ private fun RuntimeComponentsCard() {
                 is TermuxRuntime.Progress.Download -> "${progress.name} ${progress.percent}%"
                 is TermuxRuntime.Progress.Phase -> null
             }
-            if (label != null) progressFor = progressKey to label
+            if (label != null) {
+                progressFor = progressKey to label
+                // Batch installs must show their process too, not just the
+                // per-row label (the batch key matches no single row).
+                if (progressKey == "__all__") batchProgress = label
+            }
         }
         result.fold(
-            onSuccess = { progressFor = null },
+            onSuccess = {
+                progressFor = null
+                batchProgress = null
+                // Re-check updates with fresh versions after install/update.
+                UpdateChecker.check(context, config.settings.repoMirror, force = true)
+            },
             onFailure = {
                 progressFor = null
+                batchProgress = null
                 errorText = it.message ?: "unknown error"
             },
         )
@@ -414,27 +437,56 @@ private fun RuntimeComponentsCard() {
     }
 
     Card {
-        // Batch actions, top-right of the card.
+        // Batch actions as compact icon+label tools on the right - three or
+        // four Chinese characters as plain buttons felt more awkward here
+        // than centered buttons, so each action is a small icon with a tiny
+        // caption underneath.
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 6.dp),
+                .padding(horizontal = 12.dp, vertical = 6.dp),
             horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            NekoTextButton(
-                text = stringResource(R.string.runtime_batch_install),
+            BatchAction(
+                icon = { Icon(MiuixIcons.Download, contentDescription = null, tint = colorScheme.onSurface) },
+                label = stringResource(R.string.runtime_batch_install),
+                tint = colorScheme.onSurface,
                 enabled = progressFor == null,
                 onClick = { scope.launch { runInstall(null, force = false, progressKey = "__all__") } },
             )
-            NekoTextButton(
-                text = stringResource(R.string.runtime_batch_update),
-                enabled = progressFor == null,
-                onClick = { scope.launch { runInstall(null, force = true, progressKey = "__all__") } },
+            BatchAction(
+                icon = { Icon(MiuixIcons.Search, contentDescription = null, tint = colorScheme.onSurface) },
+                label = stringResource(R.string.runtime_batch_check),
+                tint = colorScheme.onSurface,
+                enabled = progressFor == null && !updateState.checking,
+                onClick = {
+                    scope.launch { UpdateChecker.check(context, config.settings.repoMirror, force = true) }
+                },
             )
-            NekoTextButton(
-                text = stringResource(R.string.runtime_batch_uninstall),
-                enabled = progressFor == null,
+            BatchAction(
+                icon = { Icon(MiuixIcons.Delete, contentDescription = null, tint = UninstallRed) },
+                label = stringResource(R.string.runtime_batch_uninstall),
+                tint = UninstallRed,
+                enabled = progressFor == null && state.runtime.installed,
                 onClick = { confirmUninstallAll = true },
+            )
+        }
+        // Visible progress for batch installs and update checks.
+        when {
+            progressFor?.first == "__all__" -> batchProgress?.let {
+                StatusLine(text = it, color = colorScheme.primary)
+            }
+            updateState.checking -> StatusLine(
+                text = stringResource(R.string.runtime_batch_checking),
+                color = colorScheme.onSurfaceVariantSummary,
+            )
+            else -> {}
+        }
+        updateState.error?.let {
+            StatusLine(
+                text = stringResource(R.string.runtime_batch_check_failed, it),
+                color = colorScheme.primary,
             )
         }
 
@@ -442,10 +494,14 @@ private fun RuntimeComponentsCard() {
             val version = state.runtime.versions[pkg]
             val sizeMb = sizes[pkg] ?: 0L
             val busy = progressFor != null
+            val latest = updateState.available[pkg]
+            val updatable = version != null && latest != null
             val summary = buildString {
                 if (version != null) {
                     append("v$version")
                     if (sizeMb > 0) append(" · ${"%.1f".format(sizeMb / 1048576.0)} MB")
+                    if (latest != null) append(" · ")
+                        .append(stringResource(R.string.runtime_update_available, latest))
                 } else {
                     append(stringResource(R.string.runtime_not_installed))
                 }
@@ -481,10 +537,12 @@ private fun RuntimeComponentsCard() {
                 )
                 if (version != null) {
                     Spacer(Modifier.height(8.dp))
+                    // Update icon: grey (disabled) when the mirror has nothing
+                    // newer, yellow and active when an update is available.
                     IconAction(
                         icon = { Icon(MiuixIcons.Refresh, contentDescription = stringResource(R.string.runtime_component_update)) },
-                        tint = UpdateYellow,
-                        enabled = !busy,
+                        tint = if (updatable) UpdateYellow else colorScheme.onSurfaceVariantSummary,
+                        enabled = !busy && updatable,
                         contentDescription = stringResource(R.string.runtime_component_update),
                         onClick = { scope.launch { runInstall(listOf(pkg), force = true, progressKey = pkg.packageName) } },
                     )
@@ -499,8 +557,16 @@ private fun RuntimeComponentsCard() {
                 }
             }
         }
-        errorText?.let {
+        if (updateState.lastCheckedAt == 0L && updateState.error == null && !updateState.checking) {
             Text(
+                text = stringResource(R.string.runtime_update_unchecked),
+                color = colorScheme.onSurfaceVariantSummary,
+                style = MiuixTheme.textStyles.subtitle,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+        }
+        errorText?.let {
+            CopyableText(
                 text = stringResource(R.string.runtime_install_failed, it),
                 color = colorScheme.primary,
                 style = MiuixTheme.textStyles.subtitle,
@@ -581,27 +647,48 @@ private fun RuntimeComponentsCard() {
     }
 }
 
-/** Compact icon button with the global press feedback. */
+/**
+ * Batch action tool: small icon with a one-word caption underneath. Replaces
+ * the former plain-text buttons ("三个四个字的按钮放在右上角比居中还别扭").
+ */
 @Composable
-private fun IconAction(
+private fun BatchAction(
     icon: @Composable () -> Unit,
+    label: String,
     tint: Color,
     enabled: Boolean,
-    contentDescription: String,
     onClick: () -> Unit,
 ) {
     val alpha = if (enabled) 1f else 0.35f
-    Box(
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
-            .size(38.dp)
             .clip(androidx.compose.foundation.shape.RoundedCornerShape(10.dp))
             .pressFeedback(cornerRadius = 10.dp)
             .clickable(enabled = enabled, onClick = onClick)
-            .padding(7.dp),
-        contentAlignment = Alignment.Center,
+            .padding(horizontal = 10.dp, vertical = 4.dp),
     ) {
         Box(modifier = Modifier.alpha(alpha)) {
             icon()
         }
+        Text(
+            text = label,
+            color = tint.copy(alpha = alpha * 0.9f),
+            fontSize = 10.sp,
+            modifier = Modifier.padding(top = 1.dp),
+        )
     }
+}
+
+/** Single-line status (batch progress / check result). */
+@Composable
+private fun StatusLine(text: String, color: Color) {
+    Text(
+        text = text,
+        color = color,
+        style = MiuixTheme.textStyles.subtitle,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+    )
 }

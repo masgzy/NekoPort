@@ -28,6 +28,7 @@ import io.github.masgzy.nekoport.core.NetUtils
 import io.github.masgzy.nekoport.core.ServerService
 import io.github.masgzy.nekoport.runtime.TermuxRuntime
 import io.github.masgzy.nekoport.ui.OverlayBus
+import io.github.masgzy.nekoport.ui.component.CopyableText
 import io.github.masgzy.nekoport.ui.component.NekoTextButton
 import kotlinx.coroutines.delay
 import top.yukonga.miuix.kmp.basic.Card
@@ -96,6 +97,16 @@ fun FtpPanel() {
                     }
                 },
             )
+            // Setup/startup failure details (pure-pw output, launch-log tail);
+            // long-press copies the message so it can be reported verbatim.
+            if (!state.ftpRunning && state.ftpStatusText != null) {
+                CopyableText(
+                    text = state.ftpStatusText!!,
+                    color = colorScheme.primary,
+                    style = MiuixTheme.textStyles.subtitle,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+            }
         }
 
         // Connection info
@@ -219,7 +230,7 @@ fun FtpPanel() {
         }
 
         errorText?.let {
-            Text(
+            CopyableText(
                 text = it,
                 color = colorScheme.primary,
                 style = MiuixTheme.textStyles.subtitle,

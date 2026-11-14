@@ -31,39 +31,40 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.masgzy.nekoport.NekoApp
 import io.github.masgzy.nekoport.R
 import io.github.masgzy.nekoport.core.Engine
 import io.github.masgzy.nekoport.core.SiteConfig
 import io.github.masgzy.nekoport.core.SiteRuntime
-import io.github.masgzy.nekoport.runtime.ConfigWriter
-import io.github.masgzy.nekoport.ui.AppRoot
 import io.github.masgzy.nekoport.ui.NekoNav
-import io.github.masgzy.nekoport.ui.OverlayBus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.DropdownItem
 import top.yukonga.miuix.kmp.basic.FloatingActionButton
 import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.Switch
 import top.yukonga.miuix.kmp.basic.Text
-import io.github.masgzy.nekoport.ui.component.NekoTextButton
-import io.github.masgzy.nekoport.ui.component.animation.pressFeedback
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Add
+import top.yukonga.miuix.kmp.icon.extended.Edit
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
-import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.OverlaySpinnerPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import io.github.masgzy.nekoport.ui.component.CopyableText
+import io.github.masgzy.nekoport.ui.component.IconAction
+import io.github.masgzy.nekoport.ui.component.NekoTextButton
+import io.github.masgzy.nekoport.ui.component.animation.pressFeedback
 import java.io.File
 
 /**
  * Sites tab: the list of HTTP sites plus the new-site flow. The component
  * status card, the PHP card and the run-all switch live on the dashboard /
- * manage tabs; config & log entries of a site are hidden behind "more".
+ * manage tabs; a site's config & log entries live on the dashboard card.
  */
 @Composable
 fun SitesPage(contentPadding: PaddingValues) {
@@ -153,80 +154,64 @@ fun SitesPage(contentPadding: PaddingValues) {
 @Composable
 private fun SiteCard(runtime: SiteRuntime, onEdit: () -> Unit) {
     val manager = NekoApp.get().serverManager
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val scope = androidx.compose.runtime.rememberCoroutineScope()
     val colorScheme = MiuixTheme.colorScheme
-    var showMore by rememberSaveable(runtime.site.id) { mutableStateOf(false) }
     Card {
-        SwitchPreference(
-            title = "${runtime.site.name} :${runtime.site.port}",
-            summary = buildString {
-                append(runtime.site.engine.displayName)
-                if (runtime.site.enablePhp) append(" + PHP")
-                append(" · ")
-                append(
-                    if (runtime.running) {
-                        stringResource(R.string.site_status_running)
-                    } else {
-                        runtime.statusText ?: stringResource(R.string.site_status_stopped)
-                    },
+        // Title row: name + status on the left, pen (edit site) + switch on
+        // the right. The former "编辑站点" row and the "更多" expander are
+        // gone; config/log entries live on the dashboard card.
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 16.dp, end = 12.dp, top = 4.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "${runtime.site.name} :${runtime.site.port}",
+                    color = colorScheme.onSurface,
+                    style = MiuixTheme.textStyles.main,
                 )
-            },
-            checked = runtime.running,
-            onCheckedChange = { on ->
-                if (on) manager.startSiteAsync(runtime.site) else manager.stopSiteAsync(runtime.site.id)
-            },
-        )
+                Text(
+                    text = buildString {
+                        append(runtime.site.engine.displayName)
+                        if (runtime.site.enablePhp) append(" + PHP")
+                        append(" · ")
+                        append(
+                            if (runtime.running) {
+                                stringResource(R.string.site_status_running)
+                            } else {
+                                stringResource(R.string.site_status_stopped)
+                            },
+                        )
+                    },
+                    color = colorScheme.onSurfaceVariantSummary,
+                    style = MiuixTheme.textStyles.subtitle,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            IconAction(
+                icon = { Icon(MiuixIcons.Edit, contentDescription = stringResource(R.string.site_edit), tint = colorScheme.onSurface) },
+                tint = colorScheme.onSurface,
+                enabled = true,
+                contentDescription = stringResource(R.string.site_edit),
+                onClick = onEdit,
+            )
+            Switch(
+                checked = runtime.running,
+                onCheckedChange = { on ->
+                    if (on) manager.startSiteAsync(runtime.site) else manager.stopSiteAsync(runtime.site.id)
+                },
+                modifier = Modifier.padding(start = 6.dp),
+            )
+        }
+        // Failure reason (launch-log tail); long-press copies it.
         runtime.statusText?.let {
-            Text(
+            CopyableText(
                 text = it,
-                color = colorScheme.onSurfaceVariantSummary,
+                color = colorScheme.primary,
                 style = MiuixTheme.textStyles.subtitle,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-            )
-        }
-        ArrowPreference(
-            title = stringResource(R.string.site_edit),
-            onClick = onEdit,
-        )
-        // Config/log entries stay hidden behind "more" by default.
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.End,
-        ) {
-            NekoTextButton(
-                text = if (showMore) stringResource(R.string.dashboard_less) else stringResource(R.string.dashboard_more),
-                onClick = { showMore = !showMore },
-            )
-        }
-        if (showMore) {
-            ArrowPreference(
-                title = stringResource(R.string.site_edit_conf),
-                onClick = {
-                    scope.launch(Dispatchers.IO) {
-                        val auto = ConfigWriter.writeEngineConf(context, runtime.site, manager.siteDocRoot(runtime.site))
-                        val file = ConfigWriter.ensureUserCopy(auto)
-                        OverlayBus.openEditor(
-                            EditorTarget(
-                                title = "${runtime.site.name} · ${runtime.site.engine.displayName}",
-                                file = file,
-                                resetAction = { ConfigWriter.resetToAuto(auto) },
-                            ),
-                        )
-                    }
-                },
-            )
-            ArrowPreference(
-                title = stringResource(R.string.site_open_log),
-                onClick = {
-                    OverlayBus.openEditor(
-                        EditorTarget(
-                            title = "site-${runtime.site.id}-error.log",
-                            file = ConfigWriter.siteErrorLog(context, runtime.site.id, runtime.site.engine),
-                            readOnly = true,
-                        ),
-                    )
-                },
             )
         }
     }

@@ -176,10 +176,15 @@ data class CronConfig(
 data class AppSettings(
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val startOnBoot: Boolean = false,
-    /** Termux repository base URL used to fetch the runtime packages. */
-    val repoMirror: String = TermuxMirror.OFFICIAL.url,
+    /** Termux repository base URL used to fetch the runtime packages.
+     *  Defaults to Tsinghua (fast + reliable inside China); the official
+     *  Termux mirror stays selectable in settings. */
+    val repoMirror: String = TermuxMirror.TUNA.url,
     /** Code-editor font size in sp (range 10..20), persisted. */
     val editorFontSize: Int = 14,
+    /** One-shot migration: alpha.2 installs still carry the old default
+     *  (official mirror); move them to Tsinghua once. */
+    val mirrorMigrated: Boolean = false,
 )
 
 enum class ThemeMode { SYSTEM, LIGHT, DARK }

@@ -27,7 +27,11 @@
     <string name="dashboard_copied">Address copied</string>
     <string name="dashboard_no_browser">No browser available</string>
     <string name="dashboard_open_folder">Open folder</string>
-    <string name="dashboard_edit_files">Edit files</string>
+    <string name="dashboard_open_conf">Config file</string>
+    <string name="dashboard_open_log">Logs</string>
+    <string name="dashboard_edit_site">Edit site</string>
+    <string name="dashboard_local_addr">Local (localhost)</string>
+    <string name="dashboard_lan_addr">LAN access</string>
     <string name="dashboard_more">More</string>
     <string name="dashboard_less">Less</string>
     <string name="dashboard_install_hint">Install this component under Settings → Server components</string>
@@ -60,7 +64,7 @@
     <string name="site_status_running">Running</string>
     <string name="site_status_stopped">Stopped</string>
     <string name="site_status_starting">Starting…</string>
-    <string name="site_status_port_failed">Not ready on port %1$d, see logs</string>
+    <string name="site_status_port_failed">Not ready on port %1$d; long-press the error below to copy it</string>
     <string name="site_status_no_runtime">Server components not installed - tap \"Install server components\" first</string>
     <string name="site_edit">Edit site</string>
     <string name="site_edit_conf">Config file</string>
@@ -88,6 +92,12 @@
     <string name="runtime_uninstall_confirm">All services will stop and cannot start until you reinstall. Uninstall now?</string>
     <string name="runtime_batch_install">Install all</string>
     <string name="runtime_batch_update">Update all</string>
+    <string name="runtime_batch_check">Check updates</string>
+    <string name="runtime_batch_checking">Checking for updates…</string>
+    <string name="runtime_batch_check_failed">Check failed: %1$s</string>
+    <string name="runtime_batch_all_latest">All components are up to date</string>
+    <string name="runtime_update_available">Update available: v%1$s</string>
+    <string name="runtime_update_unchecked">A yellow update icon means an update is available; checking runs automatically when you open settings</string>
     <string name="runtime_batch_uninstall">Uninstall all</string>
     <string name="runtime_batch_uninstall_confirm">All services will stop and every server component will be removed (the MariaDB data directory is kept). Uninstall now?</string>
     <string name="runtime_uninstall_one">Uninstall %1$s</string>

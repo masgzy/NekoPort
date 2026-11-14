@@ -27,7 +27,11 @@
     <string name="dashboard_copied">地址已复制</string>
     <string name="dashboard_no_browser">未找到可用的浏览器</string>
     <string name="dashboard_open_folder">打开文件夹</string>
-    <string name="dashboard_edit_files">编辑文件</string>
+    <string name="dashboard_open_conf">配置文件</string>
+    <string name="dashboard_open_log">日志</string>
+    <string name="dashboard_edit_site">编辑站点</string>
+    <string name="dashboard_local_addr">本机访问（localhost）</string>
+    <string name="dashboard_lan_addr">局域网访问</string>
     <string name="dashboard_more">更多</string>
     <string name="dashboard_less">收起</string>
     <string name="dashboard_install_hint">请前往「设置 → 服务器组件」安装该组件</string>
@@ -60,7 +64,7 @@
     <string name="site_status_running">运行中</string>
     <string name="site_status_stopped">已停止</string>
     <string name="site_status_starting">正在启动…</string>
-    <string name="site_status_port_failed">未在端口 %1$d 就绪，请查看日志</string>
+    <string name="site_status_port_failed">未在端口 %1$d 就绪，长按下方错误信息可复制</string>
     <string name="site_status_no_runtime">未安装服务器组件，请先点击「安装服务器组件」</string>
     <string name="site_edit">编辑站点</string>
     <string name="site_edit_conf">配置文件</string>
@@ -88,6 +92,12 @@
     <string name="runtime_uninstall_confirm">卸载后所有服务将停止且无法启动，直到重新安装。确定卸载？</string>
     <string name="runtime_batch_install">全部安装</string>
     <string name="runtime_batch_update">全部更新</string>
+    <string name="runtime_batch_check">检查更新</string>
+    <string name="runtime_batch_checking">正在检查更新…</string>
+    <string name="runtime_batch_check_failed">检查失败：%1$s</string>
+    <string name="runtime_batch_all_latest">全部组件已是最新</string>
+    <string name="runtime_update_available">可更新至 v%1$s</string>
+    <string name="runtime_update_unchecked">更新图标黄色高亮表示有更新；进入设置页会自动检查</string>
     <string name="runtime_batch_uninstall">全部卸载</string>
     <string name="runtime_batch_uninstall_confirm">将停止全部服务并删除所有服务器组件（MariaDB 数据目录保留）。确定卸载？</string>
     <string name="runtime_uninstall_one">卸载 %1$s</string>
