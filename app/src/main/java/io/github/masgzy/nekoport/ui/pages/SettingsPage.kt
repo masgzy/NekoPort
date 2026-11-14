@@ -3,6 +3,7 @@ package io.github.masgzy.nekoport.ui.pages
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -13,6 +14,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -25,9 +27,10 @@ import androidx.compose.ui.unit.dp
 import io.github.masgzy.nekoport.BuildConfig
 import io.github.masgzy.nekoport.NekoApp
 import io.github.masgzy.nekoport.R
-import io.github.masgzy.nekoport.core.PhpMirror
+import io.github.masgzy.nekoport.core.TermuxMirror
 import io.github.masgzy.nekoport.core.ThemeMode
 import io.github.masgzy.nekoport.runtime.TermuxRuntime
+import io.github.masgzy.nekoport.ui.OverlayBus
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.DropdownItem
@@ -51,13 +54,23 @@ fun SettingsPage(contentPadding: PaddingValues) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    var themeIndex by remember { mutableStateOf(ThemeMode.entries.indexOf(settings.themeMode)) }
+    var themeIndex by remember { mutableIntStateOf(ThemeMode.entries.indexOf(settings.themeMode)) }
     var installProgress by remember { mutableStateOf<String?>(null) }
     var installError by remember { mutableStateOf<String?>(null) }
     var showUninstallConfirm by remember { mutableStateOf(false) }
+    var showMoreMirrors by remember { mutableStateOf(false) }
+    var showCustomMirror by remember { mutableStateOf(false) }
+    var customMirror by remember { mutableStateOf(TextFieldValue(settings.repoMirror)) }
 
     LaunchedEffect(Unit) {
         manager.refreshRuntimeStatus()
+    }
+
+    val pinnedLabels = TermuxMirror.PINNED.map { it.label }
+    val selectedMirror = TermuxMirror.byUrl(settings.repoMirror)
+    val selectedIndex = when {
+        selectedMirror != null && selectedMirror.pinned -> TermuxMirror.PINNED.indexOf(selectedMirror)
+        else -> TermuxMirror.PINNED.size // "more..." row
     }
 
     LazyColumn(
@@ -153,7 +166,7 @@ fun SettingsPage(contentPadding: PaddingValues) {
                             installProgress = context.getString(R.string.runtime_installing)
                             installError = null
                             scope.launch {
-                                val result = TermuxRuntime.install(context, settings.phpMirror) { progress ->
+                                val result = TermuxRuntime.install(context, settings.repoMirror) { progress ->
                                     installProgress = when (progress) {
                                         is TermuxRuntime.Progress.Package ->
                                             "${progress.name} (${progress.index}/${progress.total})"
@@ -183,28 +196,19 @@ fun SettingsPage(contentPadding: PaddingValues) {
                         modifier = Modifier.weight(1f),
                     )
                 }
-                TextField(
-                    value = remember(settings.phpMirror) { TextFieldValue(settings.phpMirror) },
-                    onValueChange = { manager.updateSettings(settings.copy(phpMirror = it.text)) },
-                    label = stringResource(R.string.settings_php_mirror),
-                    useLabelAsPlaceholder = true,
-                    singleLine = true,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                )
-            }
-        }
-
-        // ---- Security note ----
-        item {
-            SmallTitle(text = stringResource(R.string.settings_security))
-            Card {
-                Text(
-                    text = stringResource(R.string.settings_security_summary),
-                    color = colorScheme.onSurfaceVariantSummary,
-                    style = MiuixTheme.textStyles.main,
-                    modifier = Modifier.padding(16.dp),
+                OverlaySpinnerPreference(
+                    items = (pinnedLabels + listOf(stringResource(R.string.mirror_more)))
+                        .map { DropdownItem(text = it, onClick = {}) },
+                    selectedIndex = selectedIndex,
+                    title = stringResource(R.string.mirror_title),
+                    summary = settings.repoMirror,
+                    onSelectedIndexChange = { idx ->
+                        if (idx < TermuxMirror.PINNED.size) {
+                            manager.updateSettings(settings.copy(repoMirror = TermuxMirror.PINNED[idx].url))
+                        } else {
+                            showMoreMirrors = true
+                        }
+                    },
                 )
             }
         }
@@ -229,6 +233,21 @@ fun SettingsPage(contentPadding: PaddingValues) {
                             )
                         }
                     },
+                )
+                ArrowPreference(
+                    title = stringResource(R.string.settings_editor_credit),
+                    summary = "https://github.com/Acode-Foundation/Acode",
+                    onClick = {
+                        runCatching {
+                            context.startActivity(
+                                Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/Acode-Foundation/Acode"))
+                            )
+                        }
+                    },
+                )
+                ArrowPreference(
+                    title = stringResource(R.string.settings_app_logs),
+                    onClick = { OverlayBus.showAppLogs() },
                 )
                 Text(
                     text = stringResource(R.string.settings_license, BuildConfig.VERSION_NAME),
@@ -267,6 +286,74 @@ fun SettingsPage(contentPadding: PaddingValues) {
                     },
                     modifier = Modifier.weight(1f),
                 )
+            }
+        }
+    }
+
+    if (showMoreMirrors) {
+        OverlayDialog(
+            show = true,
+            title = stringResource(R.string.mirror_more),
+            summary = stringResource(R.string.mirror_more_summary),
+            onDismissRequest = { showMoreMirrors = false },
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                TermuxMirror.MORE.forEach { mirror ->
+                    ArrowPreference(
+                        title = mirror.label,
+                        summary = mirror.url,
+                        onClick = {
+                            manager.updateSettings(settings.copy(repoMirror = mirror.url))
+                            showMoreMirrors = false
+                        },
+                    )
+                }
+                ArrowPreference(
+                    title = stringResource(R.string.mirror_custom),
+                    summary = stringResource(R.string.mirror_custom_summary),
+                    onClick = {
+                        showMoreMirrors = false
+                        showCustomMirror = true
+                    },
+                )
+            }
+        }
+    }
+
+    if (showCustomMirror) {
+        OverlayDialog(
+            show = true,
+            title = stringResource(R.string.mirror_custom),
+            summary = stringResource(R.string.mirror_custom_summary),
+            onDismissRequest = { showCustomMirror = false },
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                TextField(
+                    value = customMirror,
+                    onValueChange = { customMirror = it },
+                    label = stringResource(R.string.mirror_url),
+                    useLabelAsPlaceholder = true,
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    TextButton(
+                        text = stringResource(R.string.dialog_cancel),
+                        onClick = { showCustomMirror = false },
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(
+                        text = stringResource(R.string.dialog_ok),
+                        onClick = {
+                            val url = customMirror.text.trim()
+                            if (url.startsWith("http")) {
+                                manager.updateSettings(settings.copy(repoMirror = url))
+                            }
+                            showCustomMirror = false
+                        },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
             }
         }
     }

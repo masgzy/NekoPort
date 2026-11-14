@@ -27,6 +27,9 @@ import io.github.masgzy.nekoport.R
 import io.github.masgzy.nekoport.core.FtpConfig
 import io.github.masgzy.nekoport.core.NetUtils
 import io.github.masgzy.nekoport.core.ServerService
+import io.github.masgzy.nekoport.runtime.TermuxRuntime
+import io.github.masgzy.nekoport.ui.OverlayBus
+import io.github.masgzy.nekoport.ui.pages.EditorTarget
 import kotlinx.coroutines.delay
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.SmallTitle
@@ -123,6 +126,24 @@ fun FtpPage(contentPadding: PaddingValues) {
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                     )
                 }
+            }
+        }
+
+        // Files (connection log)
+        item {
+            Card {
+                ArrowPreference(
+                    title = stringResource(R.string.ftp_open_log),
+                    onClick = {
+                        OverlayBus.openEditor(
+                            EditorTarget(
+                                title = "ftp.log",
+                                file = TermuxRuntime.logsDir(context).resolve("ftp.log"),
+                                readOnly = true,
+                            ),
+                        )
+                    },
+                )
             }
         }
 

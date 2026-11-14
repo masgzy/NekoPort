@@ -4,8 +4,12 @@ import android.content.Context
 import android.os.Process
 import io.github.masgzy.nekoport.R
 import io.github.masgzy.nekoport.core.Engine
+import io.github.masgzy.nekoport.core.MariaConfig
 import io.github.masgzy.nekoport.core.SiteConfig
+import io.github.masgzy.nekoport.core.CronConfig
+import io.github.masgzy.nekoport.core.CronScheduler
 import io.github.masgzy.nekoport.runtime.ConfigWriter
+import io.github.masgzy.nekoport.runtime.MariaDbController
 import io.github.masgzy.nekoport.runtime.ProcessController
 import io.github.masgzy.nekoport.runtime.RuntimePackage
 import io.github.masgzy.nekoport.runtime.TermuxRuntime
@@ -31,13 +35,16 @@ data class ManagerState(
     val ftpRunning: Boolean = false,
     val ftpStatusText: String? = null,
     val phpFpmRunning: Boolean = false,
+    val mariaRunning: Boolean = false,
+    val mariaStatusText: String? = null,
+    val cronRunning: Boolean = false,
     val runtime: RuntimeStatus = RuntimeStatus(false),
 )
 
 /**
  * Single source of truth for the server lifecycle. Every service is a real
- * upstream binary (nginx / Apache / lighttpd / php-fpm / pure-ftpd) managed as
- * an external process; NekoPort only generates their configurations.
+ * upstream binary (lighttpd / nginx / Apache / php-fpm / mariadbd / pure-ftpd)
+ * managed as an external process; NekoPort only generates their configurations.
  */
 class ServerManager private constructor(private val context: Context) {
 
@@ -60,8 +67,10 @@ class ServerManager private constructor(private val context: Context) {
     val config: StateFlow<GlobalConfig> = _config
 
     private var phpFpmSignature: String = ""
+    private val cronScheduler = CronScheduler(context, this)
 
     init {
+        cronScheduler.apply(configStore.load().cron)
         publish()
     }
 
@@ -81,7 +90,18 @@ class ServerManager private constructor(private val context: Context) {
 
     fun updateFtp(ftp: FtpConfig) = saveConfig(_config.value.copy(ftp = ftp))
 
+    fun updateMaria(maria: MariaConfig) = saveConfig(_config.value.copy(maria = maria))
+
     fun updateSettings(settings: AppSettings) = saveConfig(_config.value.copy(settings = settings))
+
+    fun updateCron(cron: CronConfig) {
+        saveConfig(_config.value.copy(cron = cron))
+        cronScheduler.apply(cron)
+        publish()
+    }
+
+    val cronActive: Boolean
+        get() = cronScheduler.isRunning()
 
     fun nextSiteId(): Long = (_config.value.sites.maxOfOrNull { it.id } ?: 0L) + 1L
 
@@ -107,6 +127,7 @@ class ServerManager private constructor(private val context: Context) {
             if (site.enabled) startSite(site)
         }
         if (_config.value.ftp.enabled) startFtp()
+        if (_config.value.maria.enabled) startMaria()
         publish()
     }
 
@@ -181,7 +202,14 @@ class ServerManager private constructor(private val context: Context) {
         if (ProcessController.isRunning("php-fpm") && signature == phpFpmSignature) return
         ProcessController.stop("php-fpm", timeoutMs = 8000)
         ConfigWriter.writePhpIni(context)
-        val conf = ConfigWriter.writePhpFpmConf(context, _config.value.sites, sitesRoot)
+        // PHP looks up the literal name "php.ini" in PHPRC: seed the editable
+        // file from the generated one unless the user already created it.
+        runCatching {
+            val auto = ConfigWriter.phpIniAuto(context)
+            val ini = ConfigWriter.phpIni(context)
+            if (!ini.exists() && auto.exists()) auto.copyTo(ini, overwrite = true)
+        }
+        val conf = ConfigWriter.effectiveConf(ConfigWriter.writePhpFpmConf(context, _config.value.sites, sitesRoot))
         ProcessController.launch(
             context, "php-fpm", ProcessController.binary(context, "php-fpm"),
             listOf("--fpm-config", conf.canonicalPath),
@@ -293,6 +321,46 @@ class ServerManager private constructor(private val context: Context) {
         ProcessController.stop("ftp")
     }
 
+    // ---------- MariaDB (MySQL) ----------
+
+    fun startMaria() {
+        if (!TermuxRuntime.isMariaDbInstalled(context)) {
+            _state.value = _state.value.copy(
+                mariaRunning = false,
+                mariaStatusText = context.getString(R.string.maria_not_installed),
+            )
+            return
+        }
+        ProcessController.stop("maria", timeoutMs = 10000)
+        try {
+            if (!MariaDbController.isInitialized(context)) {
+                val result = MariaDbController.initialize(context)
+                result.fold(
+                    onSuccess = {},
+                    onFailure = {
+                        AppLog.e("Manager", "MariaDB init failed: ${it.message}")
+                        _state.value = _state.value.copy(
+                            mariaRunning = false,
+                            mariaStatusText = it.message,
+                        )
+                        publish()
+                        return
+                    },
+                )
+            }
+            MariaDbController.start(context, _config.value.maria)
+        } catch (e: Exception) {
+            AppLog.e("Manager", "cannot start MariaDB on port ${_config.value.maria.port}: ${e.message}")
+            _state.value = _state.value.copy(mariaStatusText = e.message)
+        }
+        publish()
+    }
+
+    fun stopMaria() {
+        MariaDbController.stop(context)
+        publish()
+    }
+
     // ---------- state ----------
 
     private fun setSiteStatus(siteId: Long, text: String) {
@@ -313,10 +381,12 @@ class ServerManager private constructor(private val context: Context) {
         }
         val runtimeInstalled = TermuxRuntime.isInstalled(context)
         _state.value = _state.value.copy(
-            running = sites.any { it.running } || ProcessController.isRunning("ftp"),
+            running = sites.any { it.running } || ProcessController.isRunning("ftp") || ProcessController.isRunning("maria"),
             sites = sites,
             ftpRunning = ProcessController.isRunning("ftp"),
             phpFpmRunning = ProcessController.isRunning("php-fpm"),
+            mariaRunning = ProcessController.isRunning("maria"),
+            cronRunning = cronScheduler.isRunning(),
             runtime = _state.value.runtime.copy(installed = runtimeInstalled),
         )
     }

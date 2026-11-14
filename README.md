@@ -4,7 +4,7 @@
 
 **把一部 Android 手机变成一台真正的 Web 服务器**
 
-内置真实的 **Nginx · Apache · Lighttpd · PHP-FPM · Pure-FTPd** 官方二进制，
+内置 **Lighttpd · Nginx · Apache · PHP-FPM · MariaDB (MySQL) · Pure-FTPd** 官方二进制，
 基于 [miuix](https://github.com/compose-miuix-ui/miuix) 液态玻璃设计，Kotlin + Jetpack Compose 打造。
 
 [![CI](https://img.shields.io/github/actions/workflow/status/masgzy/NekoPort/ci.yml?branch=main&style=flat-square&logo=githubactions&logoColor=white&label=CI)](https://github.com/masgzy/NekoPort/actions/workflows/ci.yml)
@@ -49,36 +49,43 @@ NekoPort 是一款开源的 Android Web 服务器应用，功能形态类似 KSW
 
 ## 功能特性
 
-- **三引擎站点管理** — 每个站点独立端口、独立进程，可任选 Nginx / Apache / Lighttpd 作为引擎，支持启停、编辑、目录列表开关
+- **三引擎站点管理** — 每个站点独立端口、独立进程，可任选 Lighttpd / Nginx / Apache 作为引擎，支持启停、编辑、目录列表开关
+- **MySQL 数据库** — 内置 MariaDB 服务端，一键启停、端口 / 局域网访问开关、my.cnf 编辑、日志查看，数据目录与站点目录隔离
+- **计划任务** — 标准 5 位 Cron 表达式调度，支持执行控制台命令 / 重启全部服务 / 保活看门狗，带任务日志
 - **PHP 全支持** — php-fpm 以 FastCGI 方式接入三引擎（Unix Socket），按扩展名白名单精确转发；PHP 8.5+ 内置 php2shell 修复
 - **真实 FTP 服务器** — Pure-FTPd（puredb 虚拟用户），可配置端口、账号密码、被动端口段，登录后直接管理站点文件
+- **配置文件编辑** — nginx / Apache / lighttpd 站点配置、php.ini、php-fpm.conf、my.cnf 均可在应用内直接编辑，改动持久生效并可一键恢复默认
+- **日志文件** — 应用日志 + 每个服务的引擎访问 / 错误日志、PHP 日志、MariaDB 日志、FTP 日志、计划任务日志，点击即看
+- **多镜像源** — Termux 组件安装支持官方源 / 官方 CF 源 / CERNET / 清华 / 北大 / 北外 / 中科大 / 南大 / 阿里云 / 腾讯云等十多个镜像，一键切换
 - **文件管理器** — 浏览 / 上传 / 新建 / 重命名 / 编辑 / 分享站点文件
-- **运行日志** — 应用事件与引擎日志分流，按级别过滤查看
 - **常驻服务** — 前台服务保活，支持开机自启、通知栏一键停止
 - **液态玻璃 UI** — miuix 组件库 + 液态玻璃底栏，亮暗主题跟随系统
 - **中英双语** — 界面文案完整支持简体中文与英文
 
 ## 内置组件
 
-所有组件均为 **[Termux](https://github.com/termux/termux-packages) 官方软件源**提供的 Android 原生编译版本，首次启动时在应用内一键安装（约 30-60 MB，含依赖闭包 openssl / pcre2 / zlib 等）。
+所有组件均为 **[Termux](https://github.com/termux/termux-packages) 官方软件源**提供的 Android 原生编译版本，首次启动时在应用内一键安装（约 50-100 MB，含依赖闭包 openssl / pcre2 / zlib 等）。
 
 | 组件 | 说明 | 许可证 |
 | --- | --- | --- |
+| [Lighttpd](https://www.lighttpd.net) | 轻量高性能 Web 服务器（默认引擎） | BSD-3-Clause |
 | [Nginx](https://nginx.org) | 高性能 HTTP / 反向代理服务器 | BSD-2-Clause |
 | [Apache HTTP Server](https://httpd.apache.org) | 最流行的 Web 服务器，模块生态丰富 | Apache-2.0 |
-| [Lighttpd](https://www.lighttpd.net) | 轻量高性能 Web 服务器 | BSD-3-Clause |
 | [PHP-FPM](https://www.php.net) | PHP FastCGI 进程管理器（PHP 8.5+） | PHP-3.01 |
+| [MariaDB](https://mariadb.org) | MySQL 兼容的关系型数据库（root 初始空密码、仅限本机） | GPL-2.0 |
 | [Pure-FTPd](https://www.pureftpd.org) | 安全、标准的 FTP 服务器 | ISC |
 
-组件安装于应用私有目录，配置文件由 NekoPort 生成并内置安全加固。
+组件安装于应用私有目录，配置文件由 NekoPort 生成并内置安全加固；下载镜像可在设置中切换（国内网络推荐 CERNET / 清华 / 阿里云等）。
 
 ## 快速上手
 
-1. **安装组件** — 首次打开应用，在「站点」页点击 *安装服务器组件*（需联网，一次性）
+1. **安装组件** — 首次打开应用，在「站点」页点击 *安装服务器组件*（需联网，一次性；国内网络可在设置中先选一个镜像源）
 2. **创建站点** — 点击右下角 **+** 按钮：填站点名、端口、选引擎，需要动态网页就勾上 *启用 PHP*
 3. **启动服务** — 打开 *运行全部服务* 开关，通知栏出现常驻通知
 4. **访问** — 同一局域网内浏览器打开 `http://手机IP:端口/`
-5. **（可选）开启 FTP** — 在「FTP」页设置账号密码并启用，用任意 FTP 客户端连接 `ftp://手机IP:2121/`
+5. **（可选）MySQL** — 在「MySQL」页开启服务，本机应用用 `127.0.0.1:3306` + root（初始空密码）连接
+6. **（可选）FTP** — 在「FTP」页设置账号密码并启用，用任意 FTP 客户端连接 `ftp://手机IP:2121/`
+7. **（可选）计划任务** — 在「计划任务」页添加 Cron 任务（如定时备份数据库、保活）
 
 站点根目录位于 `sites/<站点名>/`，可用内置文件管理器或 FTP 直接维护。
 
@@ -118,6 +125,7 @@ NekoPort 把安全当作一等公民，重点防护 [php2shell](https://github.c
 | **越权执行** | 每站点池独立 `open_basedir`，PHP 只能读写本站点目录与运行时临时目录 |
 | **敏感文件** | 点文件（`.git`、`.env`、`.htaccess`…）在三引擎配置中统一拦截，禁止外泄 |
 | **上传目录** | 默认 `uploads/` 等目录禁止执行 PHP（三引擎均落地为对应配置），防止 webshell 落地即用 |
+| **数据库隔离** | MariaDB 默认仅监听 `127.0.0.1`，数据目录位于应用私有空间（非站点目录，HTTP 无法触达）；开启局域网访问需用户显式确认 |
 | **运行时隔离** | 服务器二进制、配置、日志全部位于应用私有目录，HTTP 请求永远无法触达；组件安装走 HTTPS + 路径穿越校验 |
 | **进程权限** | 所有服务以应用沙箱 uid 运行，FTP 虚拟用户同样映射至沙箱 uid，无提权路径 |
 | **PHP 加固** | `expose_php=Off`、`allow_url_include=Off`、`display_errors=Off`、严格会话模式等内置 php.ini 加固 |
@@ -127,34 +135,39 @@ NekoPort 把安全当作一等公民，重点防护 [php2shell](https://github.c
 ## 架构
 
 ```
-┌────────────────────────────────────────────┐
-│  NekoPort (Kotlin + Compose + miuix)       │
-│                                            │
-│  UI 层   站点 / FTP / 文件 / 日志 / 设置     │
-│  管理层  ServerManager（进程编排 + 状态机）  │
-│  生成层  ConfigWriter（nginx/httpd/lighttpd │
-│          /php-fpm/pure-ftpd 配置生成）      │
-│  安装层  TermuxRuntime（deb 解析 + 依赖闭包）│
-└───────────────┬────────────────────────────┘
+┌──────────────────────────────────────────────┐
+│  NekoPort (Kotlin + Compose + miuix)         │
+│                                              │
+│  UI 层   站点 / MySQL / FTP / 计划任务 /      │
+│          文件 / 设置 + 全屏配置编辑器        │
+│  管理层  ServerManager（进程编排 + 状态机）    │
+│  调度层  CronScheduler（Cron 表达式调度器）   │
+│  生成层  ConfigWriter（nginx/httpd/lighttpd   │
+│          /php-fpm/my.cnf/pure-ftpd 配置生成） │
+│  安装层  TermuxRuntime（deb 解析 + 依赖闭包）  │
+└───────────────┬──────────────────────────────┘
                 │ 独立进程（LD_LIBRARY_PATH 隔离）
-    ┌───────────┼───────────┬──────────────┐
- nginx    apache httpd   lighttpd     pure-ftpd
- (每站点)    (每站点)      (每站点)      (全局)
+    ┌───────────┼───────────┬──────────┬─────────┐
+ nginx    apache httpd   lighttpd   mariadbd  pure-ftpd
+ (每站点)    (每站点)      (每站点)    (全局)    (全局)
     └───── FastCGI Unix Socket ─────┘
                 php-fpm（多池，每 PHP 站点一池）
 ```
 
-- **运行时安装**：解析 Termux 软件源 `Packages` 索引 → 以 `php-fpm` / `nginx` / `apache2` / `lighttpd` / `pure-ftpd` 为根计算依赖闭包 → 下载 .deb → 校验并解包至私有目录
-- **进程管理**：每站点一个引擎进程（前台模式），php-fpm 单主进程多池，Pure-FTPd 常驻；统一由 `ProcessController` 启停与日志采集
-- **配置即代码**：所有服务器配置由 `ConfigWriter` 按站点生成，安全基线天然一致
+- **运行时安装**：解析 Termux 软件源 `Packages` 索引 → 以 lighttpd / nginx / apache2 / php-fpm / mariadb / pure-ftpd 为根计算依赖闭包 → 下载 .deb（镜像可切换）→ 校验并解包至私有目录 → 重写脚本内硬编码路径
+- **进程管理**：每站点一个引擎进程（前台模式），php-fpm 单主进程多池，MariaDB 首次启动用上游 `mariadb-install-db` 引导数据目录，Pure-FTPd 常驻；统一由 `ProcessController` 启停与日志采集
+- **配置即代码**：所有服务器配置由 `ConfigWriter` 按站点生成（`.auto` 文件）；用户编辑的自定义配置持久生效，可随时恢复默认
 
 ## 路线图
 
-- [ ] MariaDB 组件（数据库）
+- [ ] 辅助工具一键安装（phpMyAdmin / Adminer）
+- [ ] Composer 控制台
 - [ ] 站点域名绑定（ServerName / server_name 自定义）
 - [ ] HTTPS（自签证书 / Let's Encrypt）
 - [ ] 每站点独立 php.ini 覆盖
 - [ ] 更多 FTP 虚拟用户
+
+> 当前为 **alpha** 阶段：核心功能（站点 / MySQL / FTP / 计划任务 / 配置与日志）已可用，欢迎试用并反馈问题。
 
 ## 参与贡献
 
@@ -194,4 +207,6 @@ GNU General Public License for more details.
 - [miuix](https://github.com/compose-miuix-ui/miuix) — 优雅的 Compose UI 组件库，液态玻璃底栏
 - [Termux](https://github.com/termux/termux-packages) — 高质量的 Android 原生软件源，本项目所有服务器二进制均来自其官方构建
 - [KSWEB](https://ksweb.mobildev.com) — 功能形态参考
+- [Acode](https://github.com/Acode-Foundation/Acode) — 应用内配置 / 日志编辑器的交互设计参考
+- [CERNET 镜像站联盟 / 各高校与云厂商镜像站](https://help.mirrors.cernet.edu.cn/termux/) — Termux 组件下载加速
 - 所有 [贡献者](https://github.com/masgzy/NekoPort/graphs/contributors)

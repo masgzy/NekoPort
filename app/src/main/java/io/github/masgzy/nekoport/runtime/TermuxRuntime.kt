@@ -23,17 +23,18 @@ import java.util.ArrayDeque
 /**
  * Runtime component catalogue.
  *
- * Every server shipped by NekoPort is the *real upstream binary* built by the
+ * Every server shipped by NekoPort is the *upstream binary* built by the
  * Termux project for Android (Bionic libc, aarch64/arm/x86_64). Nothing here
- * is a re-implementation: the packages below are the actual nginx, Apache
- * httpd, lighttpd, PHP-FPM and Pure-FTPd programs, installed together with
- * their full dependency closure (openssl, pcre2, zlib, ...).
+ * is a re-implementation: the packages below are the actual lighttpd, nginx,
+ * Apache httpd, PHP-FPM, MariaDB and Pure-FTPd programs, installed together
+ * with their full dependency closure (openssl, pcre2, zlib, ...).
  */
-enum class RuntimePackage(val packageName: String, val binary: String, val label: String) {
+enum class RuntimePackage(val packageName: String, val binary: String, val label: String, val versionArg: String = "-v") {
+    LIGHTTPD("lighttpd", "lighttpd", "Lighttpd"),
     NGINX("nginx", "nginx", "Nginx"),
     APACHE("apache2", "httpd", "Apache"),
-    LIGHTTPD("lighttpd", "lighttpd", "Lighttpd"),
     PHP_FPM("php-fpm", "php-fpm", "PHP-FPM"),
+    MARIADB("mariadb", "mariadbd", "MariaDB (MySQL)", versionArg = "--version"),
     PURE_FTPD("pure-ftpd", "pure-ftpd", "Pure-FTPd"),
     ;
 
@@ -55,7 +56,16 @@ internal data class InstalledState(val packages: Map<String, String> = emptyMap(
 object TermuxRuntime {
 
     private const val TAG = "Runtime"
-    private const val USER_AGENT = "NekoPort/0.2"
+    private const val USER_AGENT = "NekoPort/0.1"
+
+    /**
+     * Termux packages ship their payload under
+     * `data/data/com.termux/files/usr/...`; we strip that prefix so the
+     * payload lands directly inside our own prefix directory.
+     */
+    private const val TERMUX_PAYLOAD_PREFIX = "data/data/com.termux/files/usr/"
+    /** Hard-baked Termux prefix found inside shell scripts; rewritten at install time. */
+    private const val TERMUX_BAKED_PREFIX = "/data/data/com.termux/files/usr"
 
     fun runtimeRoot(context: Context): File = File(context.filesDir, "runtime")
     fun prefixDir(context: Context): File = File(runtimeRoot(context), "prefix")
@@ -85,13 +95,13 @@ object TermuxRuntime {
         runCatching { stateFile(context).writeText(json.encodeToString(InstalledState.serializer(), state)) }
     }
 
-    /** Detects the version of a bundled binary by running it with -v. */
+    /** Detects the version of a bundled binary by running it with its version flag. */
     fun detectVersion(context: Context, pkg: RuntimePackage): String? {
         val exe = File(prefixDir(context), "bin/${pkg.binary}")
         if (!exe.exists()) return null
         return runCatching {
             exe.setExecutable(true, false)
-            val proc = ProcessBuilder(exe.canonicalPath, "-v")
+            val proc = ProcessBuilder(exe.canonicalPath, pkg.versionArg)
                 .redirectErrorStream(true)
                 .start()
             val text = proc.inputStream.bufferedReader().readText()
@@ -117,11 +127,19 @@ object TermuxRuntime {
 
     fun isInstalled(context: Context): Boolean {
         val state = readInstalledState(context).packages
-        // Web engines: at least one of nginx / apache / lighttpd.
-        val hasEngine = RuntimePackage.ALL.any { it != RuntimePackage.PHP_FPM && state.containsKey(it.packageName) }
+        // Web engines: at least one of lighttpd / nginx / apache.
+        val hasEngine = RuntimePackage.entries.any {
+            it != RuntimePackage.PHP_FPM && it != RuntimePackage.MARIADB && state.containsKey(it.packageName)
+        }
         return state.containsKey(RuntimePackage.PHP_FPM.packageName) &&
             state.containsKey(RuntimePackage.PURE_FTPD.packageName) &&
             hasEngine
+    }
+
+    /** True when the MariaDB server package is present. */
+    fun isMariaDbInstalled(context: Context): Boolean {
+        val exe = File(prefixDir(context), "bin/${RuntimePackage.MARIADB.binary}")
+        return exe.exists()
     }
 
     // ------------------------------------------------------------------
@@ -185,6 +203,8 @@ object TermuxRuntime {
             File(prefix, "tmp").mkdirs()
             File(prefix, "var/run").mkdirs()
 
+            patchBakedPaths(context)
+
             val versions = status(context)
             AppLog.i(TAG, "runtime installed: ${versions.map { "${it.key.label} ${it.value}" }}")
             Result.success(versions)
@@ -209,6 +229,32 @@ object TermuxRuntime {
         File(prefix, "libexec/apache2").listFiles()?.forEach { it.setExecutable(true, false) }
         File(prefix, "lib/lighttpd").listFiles()?.forEach { it.setExecutable(true, false) }
         File(prefix, "sbin").listFiles()?.forEach { it.setExecutable(true, false) }
+    }
+
+    /**
+     * Rewrites the hard-baked Termux prefix inside extracted shell scripts
+     * (e.g. mariadb-install-db) so they point at our relocated prefix. ELF
+     * binaries are left untouched: text decode simply fails for them.
+     */
+    private fun patchBakedPaths(context: Context) {
+        val prefix = prefixDir(context)
+        val newPrefix = prefix.canonicalPath
+        val dirs = listOf(File(prefix, "bin"), File(prefix, "sbin"), File(prefix, "libexec/apache2"))
+        for (dir in dirs) {
+            val files = dir.listFiles() ?: continue
+            for (file in files) {
+                if (file.length() == 0L || file.length() > 2 * 1024 * 1024) continue
+                val text = runCatching {
+                    if (!file.isFile) return@runCatching null
+                    file.readText()
+                }.getOrNull() ?: continue
+                if (!text.contains(TERMUX_BAKED_PREFIX)) continue
+                runCatching {
+                    file.writeText(text.replace(TERMUX_BAKED_PREFIX, newPrefix))
+                    AppLog.i(TAG, "patched baked termux prefix in ${file.name}")
+                }
+            }
+        }
     }
 
     private fun termuxArch(): String? = when (Build.SUPPORTED_ABIS.firstOrNull()) {
@@ -331,19 +377,46 @@ object TermuxRuntime {
                     TarArchiveInputStream(decompressed).use { tar ->
                         while (true) {
                             val entry = tar.nextTarEntry ?: break
-                            val rel = entry.name.removePrefix("./").trimStart('/')
+                            val rel0 = entry.name.removePrefix("./").trimStart('/')
+                            val rel = if (rel0.startsWith(TERMUX_PAYLOAD_PREFIX)) {
+                                rel0.substring(TERMUX_PAYLOAD_PREFIX.length)
+                            } else {
+                                rel0
+                            }
                             if (rel.isEmpty()) continue
                             val target = File(dest, rel)
                             if (!target.canonicalPath.startsWith(destCanonical.path + File.separator)) {
                                 throw RepoException("blocked path traversal in package: ${entry.name}")
                             }
-                            if (entry.isDirectory) {
-                                target.mkdirs()
-                            } else {
-                                target.parentFile?.mkdirs()
-                                FileOutputStream(target).use { tar.copyTo(it) }
-                                if (entry.mode and 0x49 != 0) { // u+x, g+x, o+x
-                                    target.setExecutable(true, false)
+                            when {
+                                entry.isDirectory -> target.mkdirs()
+                                entry.isSymbolicLink -> {
+                                    target.parentFile?.mkdirs()
+                                    runCatching {
+                                        target.delete()
+                                        val linkTarget = File(target.parentFile, entry.linkName)
+                                        java.nio.file.Files.createSymbolicLink(
+                                            target.toPath(),
+                                            linkTarget.toPath(),
+                                        )
+                                    }.onFailure {
+                                        AppLog.w(TAG, "symlink failed for ${entry.name}: ${it.message}")
+                                    }
+                                }
+                                entry.isLink -> {
+                                    // Hard link: copy the already-extracted target.
+                                    val source = File(dest, entry.linkName.trimStart('/'))
+                                    if (source.exists()) {
+                                        target.parentFile?.mkdirs()
+                                        source.copyTo(target, overwrite = true)
+                                    }
+                                }
+                                else -> {
+                                    target.parentFile?.mkdirs()
+                                    FileOutputStream(target).use { tar.copyTo(it) }
+                                    if (entry.mode and 0x49 != 0) { // u+x, g+x, o+x
+                                        target.setExecutable(true, false)
+                                    }
                                 }
                             }
                         }

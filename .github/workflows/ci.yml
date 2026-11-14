@@ -48,9 +48,54 @@ jobs:
           path: app/build/outputs/apk/release/*.apk
           if-no-files-found: error
 
+      - name: Prepare release notes
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          if [[ "${GITHUB_REF_NAME}" == "v0.1.0-alpha.1" ]]; then
+            cat > RELEASE_NOTES.md <<'NOTES_EOF'
+          > ⚠️ Alpha 预览版，界面与功能仍会调整，欢迎通过 [Issues](https://github.com/masgzy/NekoPort/issues) 反馈问题。
+
+          ## ✨ 新特性
+
+          ### MySQL 数据库
+          - 内置 MariaDB 服务端（来自 Termux 软件源），「MySQL」页一键启停
+          - 端口自定义；默认仅监听 127.0.0.1，可显式开启局域网访问
+          - 首次启动自动引导数据目录（上游 mariadb-install-db），root 初始为空密码（仅限本机）
+          - my.cnf 应用内编辑 + 一键恢复默认；MariaDB 日志直接查看
+
+          ### 计划任务
+          - 标准 5 位 Cron 表达式（支持 `*` `,` `-` `/`），任务卡片管理、启停切换
+          - 三种动作：执行控制台命令 / 重启全部服务 / 保持服务器始终运行（保活看门狗）
+          - 支持检查表达式并预览下次执行时间；任务记录与输出可写入 cron.log
+
+          ### 配置文件与日志
+          - 站点 nginx / Apache / lighttpd 配置、php.ini、php-fpm.conf、my.cnf 均可在应用内直接编辑，改动持久生效，可一键恢复默认
+          - 每个服务可直接打开对应日志：引擎访问 / 错误日志、PHP 错误日志、MariaDB 日志、FTP 日志、计划任务日志
+
+          ### 组件下载镜像
+          - 设置页可切换 Termux 软件源镜像：官方源 / 官方 CF 源 / CERNET / 清华 / 北大 / 北外 / 中科大 / 南大 / 阿里云 / 腾讯云，另有华为云、高校镜像与自定义地址（「更多镜像…」）
+
+          ## 🛠 改进
+          - 默认引擎改为 Lighttpd（遵循 KSWEB 习惯），引擎顺序 Lighttpd → Nginx → Apache
+          - 「站点」页新增 PHP 管理卡片（php.ini / php-fpm.conf / PHP 错误日志）
+          - 设置页精简：移除冗余的「安全加固」说明卡片，组件描述更简洁
+          - 底栏重构为 6 个标签：站点 / MySQL / FTP / 计划任务 / 文件 / 设置；应用日志移至「设置」页
+          - 修复组件安装解包路径错误导致二进制无法定位的问题；补齐 .deb 符号链接还原与脚本内硬编码路径重写（MariaDB 引导脚本等）
+          - README 重写：社区规范 + shields.io 徽标 + 安全设计说明 + Acode 编辑器声明
+
+          ## 📦 安装
+          - 下载下方 APK（正式签名）；系统要求 Android 8.0+，支持 arm64-v8a / armeabi-v7a / x86_64
+          - 首次使用需联网安装服务器组件（约 50-100 MB），国内网络建议先在「设置 → 软件源镜像」中选择就近镜像
+          NOTES_EOF
+          else
+            echo "See [commit history](https://github.com/masgzy/NekoPort/commits) for details." > RELEASE_NOTES.md
+          fi
+
       - name: Release on tag
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           files: app/build/outputs/apk/release/*.apk
+          body_path: RELEASE_NOTES.md
           generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-alpha') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-rc') }}

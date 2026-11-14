@@ -7,14 +7,15 @@
     <string name="notification_stop_action">Stop all services</string>
 
     <string name="tab_sites">Sites</string>
+    <string name="tab_mysql">MySQL</string>
     <string name="tab_ftp">FTP</string>
+    <string name="tab_cron">Tasks</string>
     <string name="tab_files">Files</string>
-    <string name="tab_logs">Logs</string>
     <string name="tab_settings">Settings</string>
 
     <!-- Sites -->
     <string name="sites_master_switch">Run all services</string>
-    <string name="sites_master_switch_summary">Start all enabled sites and FTP, kept alive by a foreground notification</string>
+    <string name="sites_master_switch_summary">Start all enabled sites, FTP and MySQL, kept alive by a foreground notification</string>
     <string name="sites_add">New site</string>
     <string name="sites_empty">Tap the button in the bottom-right corner to create your first site</string>
     <string name="site_name">Site name</string>
@@ -36,23 +37,86 @@
     <string name="site_status_stopped">Stopped</string>
     <string name="site_status_no_runtime">Server components not installed - tap \"Install server components\" first</string>
     <string name="site_edit">Edit site</string>
+    <string name="site_edit_conf">Config file</string>
+    <string name="site_open_log">Log file</string>
     <string name="site_confirm">Save</string>
     <string name="site_port_conflict">Port already used by another site</string>
     <string name="site_invalid_name">Site name may only contain letters, digits, underscores and hyphens</string>
     <string name="site_invalid_port">Port must be within 1024-65535</string>
 
+    <!-- PHP -->
+    <string name="php_title">PHP</string>
+    <string name="php_not_installed">Not installed</string>
+    <string name="php_edit_ini">Edit the PHP main config (edits persist)</string>
+    <string name="php_edit_fpm_conf">Edit the php-fpm pool config (edits persist)</string>
+    <string name="php_open_log">PHP error log</string>
+
     <!-- Runtime -->
     <string name="runtime_title">Server components</string>
     <string name="runtime_ready">Ready</string>
-    <string name="runtime_missing">Not installed yet. Components are the real nginx / Apache / lighttpd / PHP-FPM / Pure-FTPd official binaries (from the Termux repository)</string>
+    <string name="runtime_missing">Not installed yet. Components are lighttpd / nginx / Apache / PHP / MariaDB (MySQL) / Pure-FTPd from the Termux repository</string>
     <string name="runtime_install">Install server components</string>
     <string name="runtime_installing">Installing server components…</string>
     <string name="runtime_reinstall">Reinstall / update components</string>
     <string name="runtime_uninstall">Uninstall components</string>
     <string name="runtime_uninstall_confirm">All services will stop and cannot start until you reinstall. Uninstall now?</string>
     <string name="runtime_install_failed">Install failed: %1$s</string>
-    <string name="runtime_note">Binaries come from the official Termux repository (native aarch64/arm/x86_64 builds), installed into the app private directory with hardened configs. First install needs network access, roughly 30-60 MB.</string>
-    <string name="settings_php_mirror">Download mirror</string>
+    <string name="runtime_note">Binaries come from the Termux repository (native aarch64/arm/x86_64 builds), installed into the app private directory with hardened configs. First install needs network access, roughly 50-100 MB.</string>
+
+    <!-- Mirrors -->
+    <string name="mirror_title">Download mirror</string>
+    <string name="mirror_more">More mirrors…</string>
+    <string name="mirror_more_summary">Huawei Cloud, university mirrors and a custom URL</string>
+    <string name="mirror_custom">Custom mirror</string>
+    <string name="mirror_custom_summary">Enter the Termux repository root (dists/stable/…)</string>
+    <string name="mirror_url">Mirror URL</string>
+
+    <!-- MariaDB -->
+    <string name="maria_component_title">MySQL (MariaDB)</string>
+    <string name="maria_not_installed">MariaDB is not installed. Install or update the server components (includes MariaDB) first.</string>
+    <string name="maria_enable">Enable MySQL service</string>
+    <string name="maria_status_running">Running · port %1$d</string>
+    <string name="maria_status_stopped">Stopped</string>
+    <string name="maria_connection">Connection info</string>
+    <string name="maria_connection_hint">Apps on this device connect via localhost / 127.0.0.1; root starts with an empty password, local only</string>
+    <string name="maria_connection_remote">LAN connections are allowed; other devices can connect via the device IP</string>
+    <string name="maria_settings">Settings</string>
+    <string name="maria_version">MariaDB version</string>
+    <string name="maria_allow_remote">Allow LAN connections</string>
+    <string name="maria_allow_remote_summary">Binds 127.0.0.1 by default; enabling binds all interfaces and exposes the database to your LAN</string>
+    <string name="maria_port">MySQL port</string>
+    <string name="maria_root_hint">The data directory lives in the app private space (runtime/mariadb/data), isolated from site roots. Tap \"Save and apply\" after changing the port or binding to restart.</string>
+    <string name="maria_save">Save and apply</string>
+    <string name="maria_files">Files</string>
+    <string name="maria_edit_conf">Config file my.cnf</string>
+    <string name="maria_open_log">Log file</string>
+
+    <!-- Cron -->
+    <string name="cron_enable">Enable scheduled tasks</string>
+    <string name="cron_enable_summary">Tasks run on their cron expressions while the app process is alive; scheduling resumes when the app reopens</string>
+    <string name="cron_logs">Logs</string>
+    <string name="cron_log_enabled">Enable logging</string>
+    <string name="cron_open_log">Log file</string>
+    <string name="cron_tasks">Tasks</string>
+    <string name="cron_empty">Tap the button in the bottom-right corner to add your first task</string>
+    <string name="cron_add">Add task</string>
+    <string name="cron_edit_task">Edit task</string>
+    <string name="cron_task_name">Task name</string>
+    <string name="cron_expr">Cron expression</string>
+    <string name="cron_expr_hint">Standard 5-field format: minute hour day month weekday, supports * , - / (e.g. */5 * * * *)</string>
+    <string name="cron_check_expr">Check expression</string>
+    <string name="cron_next_run">Next run: %1$s</string>
+    <string name="cron_expr_invalid">Invalid expression - check the format</string>
+    <string name="cron_name_invalid">Task name cannot be empty</string>
+    <string name="cron_command_empty">Enter the command to run</string>
+    <string name="cron_command">Console command</string>
+    <string name="cron_action">Action</string>
+    <string name="cron_action_command">Run console command</string>
+    <string name="cron_action_restart">Restart all services</string>
+    <string name="cron_action_keepalive">Keep the server always running</string>
+    <string name="cron_log_output">Save task output to the log</string>
+    <string name="cron_log_output_summary">Command stdout/stderr is appended to cron.log</string>
+    <string name="cron_task_disabled">Disabled</string>
 
     <!-- FTP -->
     <string name="ftp_enable">Enable FTP service</string>
@@ -61,6 +125,7 @@
     <string name="ftp_connection">Connection info</string>
     <string name="ftp_connection_hint">Connect with any FTP client (passive port range below)</string>
     <string name="ftp_root_hint">The FTP root is the sites root (sites/), letting you manage every site\'s files after login</string>
+    <string name="ftp_open_log">Log file</string>
     <string name="ftp_account">FTP account</string>
     <string name="ftp_username">Username</string>
     <string name="ftp_password">Password</string>
@@ -97,6 +162,11 @@
     <string name="logs_clear">Clear logs</string>
     <string name="logs_empty">No logs yet</string>
 
+    <!-- Editor -->
+    <string name="editor_save">Save</string>
+    <string name="editor_reset">Reset</string>
+    <string name="editor_reset_confirm">Delete the custom config and return to the generated defaults? Takes effect on next start.</string>
+
     <!-- Settings -->
     <string name="settings_theme">Theme mode</string>
     <string name="settings_theme_system">Follow system</string>
@@ -104,11 +174,11 @@
     <string name="settings_theme_dark">Dark</string>
     <string name="settings_boot_start">Start services on boot</string>
     <string name="settings_boot_start_summary">Restore the previous service state after boot</string>
-    <string name="settings_security">Security hardening</string>
-    <string name="settings_security_summary">Real official server binaries · PHP extension whitelist · upload directory execution protection · dotfile (.htaccess/.git/.env) blocking · hardened php.ini - see README \"Security design\"</string>
     <string name="settings_about">About</string>
-    <string name="settings_about_summary">Android web server bundling the real Nginx / Apache / Lighttpd / PHP-FPM / Pure-FTPd\nUI built with the miuix liquid-glass design</string>
+    <string name="settings_about_summary">Android web server bundling Lighttpd / Nginx / Apache / PHP-FPM / MariaDB (MySQL) / Pure-FTPd\nUI built with the miuix liquid-glass design</string>
     <string name="settings_github">GitHub repository</string>
+    <string name="settings_editor_credit">Editor interaction inspired by Acode</string>
+    <string name="settings_app_logs">App log</string>
     <string name="settings_license">License: GPL-3.0-or-later · v%1$s</string>
 
     <string name="dialog_ok">OK</string>

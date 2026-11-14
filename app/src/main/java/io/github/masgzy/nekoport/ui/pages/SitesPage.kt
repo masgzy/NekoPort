@@ -33,7 +33,10 @@ import io.github.masgzy.nekoport.core.Engine
 import io.github.masgzy.nekoport.core.ServerService
 import io.github.masgzy.nekoport.core.SiteConfig
 import io.github.masgzy.nekoport.core.SiteRuntime
+import io.github.masgzy.nekoport.runtime.ConfigWriter
+import io.github.masgzy.nekoport.runtime.RuntimePackage
 import io.github.masgzy.nekoport.runtime.TermuxRuntime
+import io.github.masgzy.nekoport.ui.OverlayBus
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.DropdownItem
@@ -93,6 +96,12 @@ fun SitesPage(contentPadding: PaddingValues) {
             // Bundled real-server runtime status.
             item {
                 RuntimeCard()
+            }
+
+            // PHP management (php.ini / php-fpm pools / logs), mirroring the
+            // classic PHP tab.
+            item {
+                PhpCard()
             }
 
             if (state.sites.isEmpty()) {
@@ -203,7 +212,7 @@ private fun RuntimeCard() {
                 onClick = {
                     progressText = context.getString(R.string.runtime_installing)
                     scope.launch {
-                        val mirror = config.settings.phpMirror
+                        val mirror = config.settings.repoMirror
                         val result = TermuxRuntime.install(context, mirror) { progress ->
                             progressText = when (progress) {
                                 is TermuxRuntime.Progress.Phase -> "..."
@@ -229,8 +238,82 @@ private fun RuntimeCard() {
 }
 
 @Composable
+private fun PhpCard() {
+    val manager = NekoApp.get().serverManager
+    val config by manager.config.collectAsState()
+    val state by manager.state.collectAsState()
+    val colorScheme = MiuixTheme.colorScheme
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val version = state.runtime.versions[RuntimePackage.PHP_FPM]
+
+    Card {
+        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+            Text(
+                text = stringResource(R.string.php_title),
+                color = colorScheme.onSurface,
+                style = MiuixTheme.textStyles.title2,
+            )
+            Text(
+                text = version?.let { "PHP v$it" } ?: stringResource(R.string.php_not_installed),
+                color = colorScheme.onSurfaceVariantSummary,
+                style = MiuixTheme.textStyles.subtitle,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        }
+        ArrowPreference(
+            title = "php.ini",
+            summary = stringResource(R.string.php_edit_ini),
+            onClick = {
+                scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    ConfigWriter.writePhpIni(context)
+                    val file = ConfigWriter.ensureUserCopy(ConfigWriter.phpIniAuto(context))
+                    OverlayBus.openEditor(
+                        EditorTarget(
+                            title = "php.ini",
+                            file = file,
+                            resetAction = { ConfigWriter.resetToAuto(ConfigWriter.phpIniAuto(context)) },
+                        ),
+                    )
+                }
+            },
+        )
+        ArrowPreference(
+            title = "php-fpm.conf",
+            summary = stringResource(R.string.php_edit_fpm_conf),
+            onClick = {
+                scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    ConfigWriter.writePhpFpmConf(context, config.sites, manager.sitesRoot)
+                    val file = ConfigWriter.ensureUserCopy(ConfigWriter.phpFpmConfAuto(context))
+                    OverlayBus.openEditor(
+                        EditorTarget(
+                            title = "php-fpm.conf",
+                            file = file,
+                            resetAction = { ConfigWriter.resetToAuto(ConfigWriter.phpFpmConfAuto(context)) },
+                        ),
+                    )
+                }
+            },
+        )
+        ArrowPreference(
+            title = stringResource(R.string.php_open_log),
+            onClick = {
+                OverlayBus.openEditor(
+                    EditorTarget(
+                        title = "php-fpm-error.log",
+                        file = ConfigWriter.logsDir(context).resolve("php-fpm-error.log"),
+                        readOnly = true,
+                    ),
+                )
+            },
+        )
+    }
+}
+
+@Composable
 private fun SiteCard(runtime: SiteRuntime, onEdit: () -> Unit) {
     val manager = NekoApp.get().serverManager
+    val context = androidx.compose.ui.platform.LocalContext.current
     val colorScheme = MiuixTheme.colorScheme
     Card {
         SwitchPreference(
@@ -264,6 +347,34 @@ private fun SiteCard(runtime: SiteRuntime, onEdit: () -> Unit) {
             title = stringResource(R.string.site_edit),
             onClick = onEdit,
         )
+        ArrowPreference(
+            title = stringResource(R.string.site_edit_conf),
+            onClick = {
+                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                    val auto = ConfigWriter.writeEngineConf(context, runtime.site, manager.siteDir(runtime.site.name))
+                    val file = ConfigWriter.ensureUserCopy(auto)
+                    OverlayBus.openEditor(
+                        EditorTarget(
+                            title = "${runtime.site.name} · ${runtime.site.engine.displayName}",
+                            file = file,
+                            resetAction = { ConfigWriter.resetToAuto(auto) },
+                        ),
+                    )
+                }
+            },
+        )
+        ArrowPreference(
+            title = stringResource(R.string.site_open_log),
+            onClick = {
+                OverlayBus.openEditor(
+                    EditorTarget(
+                        title = "site-${runtime.site.id}-error.log",
+                        file = ConfigWriter.siteErrorLog(context, runtime.site.id, runtime.site.engine),
+                        readOnly = true,
+                    ),
+                )
+            },
+        )
     }
 }
 
@@ -279,7 +390,7 @@ private fun SiteEditorDialog(site: SiteConfig?, onDismiss: () -> Unit) {
     var name by remember { mutableStateOf(TextFieldValue(site?.name ?: "")) }
     var port by remember { mutableStateOf(TextFieldValue(site?.port?.toString() ?: "8080")) }
     var engineIndex by remember {
-        mutableStateOf(Engine.entries.indexOfFirst { it == (site?.engine ?: Engine.NGINX) }.coerceAtLeast(0))
+        mutableStateOf(Engine.entries.indexOfFirst { it == (site?.engine ?: Engine.LIGHTTPD) }.coerceAtLeast(0))
     }
     var enabled by remember { mutableStateOf(site?.enabled ?: true) }
     var enablePhp by remember { mutableStateOf(site?.enablePhp ?: false) }
