@@ -80,10 +80,14 @@ jobs:
 
       - name: Verify tag matches versionName
         run: |
-          VERSION=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts)
+          VERSION=$(grep -oP 'baseVersionName\s*=\s*"\K[^"]+' app/build.gradle.kts | head -1)
+          if [ -z "$VERSION" ]; then
+            echo "::error::could not read baseVersionName from app/build.gradle.kts"
+            exit 1
+          fi
           TAG_VERSION="${GITHUB_REF_NAME#v}"
           if [ "$VERSION" != "$TAG_VERSION" ]; then
-            echo "::error::tag $GITHUB_REF_NAME does not match versionName $VERSION - cut the tag from the matching commit."
+            echo "::error::tag $GITHUB_REF_NAME does not match baseVersionName $VERSION - cut the tag from the matching commit."
             exit 1
           fi
 
