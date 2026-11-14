@@ -6,7 +6,16 @@ on:
     tags: [ 'v*' ]
   pull_request:
   workflow_dispatch:
+    inputs:
+      mark_unusable:
+        description: '在 Release 标题标注 [功能无法使用][待修复]'
+        type: boolean
+        default: false
+        required: false
 
+# Regular pushes/PRs build signed APKs as run artifacts only. Releases are
+# created exclusively from version tags, and a tag is never released twice -
+# old releases and their notes are never overwritten (alpha.1 lesson).
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -14,10 +23,10 @@ jobs:
       contents: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
@@ -26,9 +35,9 @@ jobs:
         run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
 
-      - name: Build release APK (signed with CI keystore)
+      - name: Build release APKs (per-ABI + universal, signed with CI keystore)
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
@@ -36,60 +45,106 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: ./gradlew assembleRelease --stacktrace --warning-mode all
 
-      - name: Check APK signature
+      - name: Check APK signatures
         run: |
           ls -la app/build/outputs/apk/release/
-          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs app/build/outputs/apk/release/*.apk
+          for apk in app/build/outputs/apk/release/*.apk; do
+            "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs "$apk"
+          done
 
-      - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
+      - name: Upload APK artifacts
+        uses: actions/upload-artifact@v5
         with:
-          name: NekoPort-APK
+          name: NekoPort-APKs
           path: app/build/outputs/apk/release/*.apk
           if-no-files-found: error
 
-      - name: Prepare release notes
-        if: startsWith(github.ref, 'refs/tags/v')
+  release:
+    # Only version tags produce a GitHub Release. Every release is a fresh
+    # tag => a fresh release; nothing is ever overwritten after the fact.
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    environment: release
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Download built APKs
+        uses: actions/download-artifact@v5
+        with:
+          name: NekoPort-APKs
+          path: apk
+
+      - name: Verify tag matches versionName
         run: |
+          VERSION=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts)
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          if [ "$VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match versionName $VERSION - cut the tag from the matching commit."
+            exit 1
+          fi
+
+      - name: Refuse to overwrite an existing release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            echo "::error::release $GITHUB_REF_NAME already exists - never overwrite; cut a new tag."
+            exit 1
+          fi
+
+      - name: Prepare release notes
+        run: |
+          MARKER=""
+          if [ "${{ inputs.mark_unusable }}" = "true" ]; then
+            MARKER="[功能无法使用][待修复] "
+          fi
           cat > RELEASE_NOTES.md <<'NOTES_EOF'
           > ⚠️ Alpha 预览版，界面与功能仍会调整，欢迎通过 [Issues](https://github.com/masgzy/NekoPort/issues) 反馈问题。
+          >
+          > ❗ 待确认：alpha.2 反馈的 HTTP 引擎（Lighttpd / Nginx / Apache）启动失败在本版加入了失败原因直显（开关下方即见、长按可复制）；如仍无法启动，请长按复制错误信息提交 Issue。本版修复的 FTP / MySQL 启动错误已在代码层面根因修复。
 
-          ## 🐛 修复（0.1.0-alpha.2）
+          ## 🛠 修复（0.1.0-alpha.3）
 
-          - **开启 MySQL / FTP 直接闪退**：前台服务补齐 Android 14+ 要求的 `dataSync` 类型声明，并对 `startForeground` 做了兜底降级；通知构建也加了防护
-          - **仪表盘与管理页标签图标不显示**：Material Symbols 负坐标路径整体平移进 960×960 视口（此前内容完全落在视口外被裁剪）
-          - **新建站点弹窗内容超长被截断、无法保存**：弹窗内容改为可滚动（最多 62% 屏高），保存按钮始终可达
-          - **my.cnf / *.conf / *.ini 全部没有语法高亮**：修复 CodeMirror 模式解析（`findModeByName` 未加载导致的静默回退纯文本）；php-fpm.conf / my.cnf / php.ini 按 INI 语法高亮，nginx/lighttpd/Apache 配置按 nginx 语法高亮
-          - **MariaDB「版本」一行点击无反应**：现在会弹出完整的 `mariadbd --version` 详情
-          - **「卸载%1$s」占位符未填充**：随组件操作重构一并修复
-          - **「忽略电池优化」授权后仍显示**：已忽略时自动隐藏该项，回到前台即时刷新
-          - 设置页分区标题（服务器组件 / 关于等）颜色加深、左缘与卡片文字对齐；服务器组件卡片上下留白加大
+          ### 稳定性
+          - **FTP 启用报错（pure-pw rc=1 / 链接库错误）**：pure-pw 子进程此前未注入运行时环境（`LD_LIBRARY_PATH` 等），Android 链接器找不到 `libandroid-support.so` 直接失败；现已统一注入完整环境
+          - **开启 MySQL 报 `Cannot run program mariadb-install-db: error=2`**：运行时新增 `dash`（提供 `bin/sh`），`mariadb-install-db` 的解释器按 bash → 自带 sh → 系统 sh 依次回退，不再指向不存在的解释器
+          - **组件版本探测/「MariaDB 版本详情」点击无反应**：`--version` 探测同样补上运行时环境；失败时回退显示已记录版本并给出修复提示
+          - **损坏的旧安装无法自愈**：安装前检查关键文件（各引擎二进制、pure-pw、mariadb-install-db、bin/sh、libandroid-support/libc++），缺失时自动全量修复重装；新增 x86 (i686) 设备支持
+          - **启动失败原因可见**：站点 / FTP / MariaDB 启动失败时，直接把启动日志尾部（链接器错误、配置错误等）显示在卡片上，长按即可复制，不必再对着截图 OCR
+          - **错误信息长按复制**：站点状态、FTP / MySQL 错误、安装失败、版本详情等文本均可长按复制
 
-          ## ✨ 新特性（0.1.0-alpha.2）
+          ### 组件管理
+          - **进入设置页自动检查更新**：有更新的组件更新图标变黄色高亮（并显示「可更新至 vX.Y.Z」），无更新保持置灰
+          - **「全部更新」改为「检查更新」**：由用户按组件自行更新；全部安装过程实时可见（当前包名 / 进度 / 百分比）
+          - **批量操作图标化**：右上角改为 图标+小字 的紧凑工具组（全部安装 / 检查更新 / 全部卸载），不再挤一排长文字按钮
 
-          ### 服务器组件批量操作
-          - 卡片右上角新增 **全部安装 / 全部更新 / 全部卸载**；全部更新 = 强制重新拉取并解压全部组件（Termux 源始终携带最新上游构建）
-          - 每个组件行右侧改为图标操作：安装（下载图标）、**更新（黄色刷新图标）**、**卸载（红色垃圾桶图标）**，节省空间
+          ### 仪表盘与站点卡片
+          - **站点地址按行拆分**：本机（localhost）与局域网地址各占一行，点哪一行就用浏览器打开哪个地址（此前无论点哪都打开 localhost）
+          - 仪表盘卡片：删除「编辑文件」「编辑站点」「更多」；头部改为 **笔图标（编辑站点，文件夹图标左侧）+ 文件夹图标**，按钮行改为 打开文件夹 / 配置文件 / 日志
+          - 站点页卡片：删除「更多」；「编辑站点」改为**笔图标放在开关左侧**
 
-          ### FTP 多账户
-          - 支持多个 FTP 账户：主账户 + 任意附加账户，各自独立用户名 / 密码 / 根目录（留空使用站点根目录，可 chroot 到 /sdcard 下的目录）
-          - FTP 设置全部改为标签常显（用户名 / 密码 / 端口 / 被动起始端口 / 根目录不再"删光数值才看得出是什么字段"）
-
-          ### 仪表盘交互
-          - 点击**站点地址**直接用浏览器打开；头部 **[<>]** 文件夹按钮进入内置文件管理器浏览站点目录（不再复制地址）
-          - 应用日志页新增「复制日志」，当前筛选的全部日志一键复制到剪贴板
-          - 自定义软件源弹窗：预填当前源地址、显示"当前源"、校验 http(s) 前缀
+          ### 其他
+          - 软件源镜像默认改为**清华源**（旧安装一次性自动迁移，官方源仍可手动选回）
 
           ## 📦 安装
-          - 下载下方 APK（正式签名）；系统要求 Android 8.0+，支持 arm64-v8a / armeabi-v7a / x86_64
-          - 首次使用需联网安装服务器组件（约 50-100 MB），国内网络建议先在「设置 → 软件源镜像」中选择就近镜像
+          - 按设备架构下载对应 APK：**armv8a**（arm64-v8a，绝大多数现代手机）、**armv7**、**x86-64**、**x86**，或下载 **universe** 全架构包
+          - 系统要求 Android 8.0+；首次使用需联网安装服务器组件（约 50-100 MB）
+          - 遇到「启动失败」请长按卡片上的错误信息复制后提交 Issue，便于定位
           NOTES_EOF
+          # Prepend the broken-release marker when requested.
+          if [ -n "$MARKER" ]; then
+            sed -i "1s/^/# ${MARKER}NekoPort ${GITHUB_REF_NAME#v}\n/" RELEASE_NOTES.md
+          fi
 
-      - name: Release on tag
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: app/build/outputs/apk/release/*.apk
+          files: apk/*.apk
           body_path: RELEASE_NOTES.md
           generate_release_notes: true
+          fail_on_unmatched_files: true
           prerelease: ${{ contains(github.ref_name, '-alpha') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-rc') }}

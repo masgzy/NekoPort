@@ -13,6 +13,11 @@ val envKeystorePass: String? = System.getenv("KEYSTORE_PASSWORD")
 val envKeyAlias: String? = System.getenv("KEY_ALIAS")
 val envKeyPass: String? = System.getenv("KEY_PASSWORD")
 
+// Single source of truth for the release identity; the CI release job
+// verifies the pushed tag against baseVersionName.
+val baseVersionName = "0.1.0-alpha.3"
+val baseVersionCode = 6
+
 android {
     namespace = "io.github.masgzy.nekoport"
     compileSdk = 37
@@ -23,9 +28,20 @@ android {
         // targetSdk is intentionally kept at 28 (same approach as Termux):
         // it allows executing the bundled/downloaded php-cgi runtime from app data.
         targetSdk = 28
-        versionCode = 5
-        versionName = "0.1.0-alpha.2"
+        versionCode = baseVersionCode
+        versionName = baseVersionName
         resourceConfigurations += listOf("zh", "en")
+    }
+
+    // Per-ABI APKs plus a universal one. Release names use the user-facing
+    // ABI labels: NekoPort-<version>-armv8a / armv7 / x86 / x86-64 / universe.apk
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+            isUniversalApk = true
+        }
     }
 
     signingConfigs {
@@ -69,6 +85,37 @@ android {
 
     buildFeatures {
         buildConfig = true
+    }
+}
+
+// APK naming + versionCode scheme through the variant API (AGP 9 removed
+// applicationVariants): universal = base*10, ABI splits = base*10 + 1..4 so a
+// split APK can always upgrade an installed universal one.
+androidComponents {
+    onVariants { variant ->
+        variant.outputs.forEach { output ->
+            // Split outputs carry exactly one ABI filter; the universal APK
+            // has none. Matching on the identifier avoids the FilterType API.
+            val abi = output.filters.firstOrNull()?.identifier
+            val label = when (abi) {
+                "arm64-v8a" -> "armv8a"
+                "armeabi-v7a" -> "armv7"
+                "x86_64" -> "x86-64"
+                "x86" -> "x86"
+                null -> "universe"
+                else -> abi
+            }
+            val abiCode = when (abi) {
+                "armeabi-v7a" -> 1
+                "arm64-v8a" -> 2
+                "x86" -> 3
+                "x86_64" -> 4
+                else -> 0
+            }
+            val outputImpl = output as com.android.build.api.variant.impl.VariantOutputImpl
+            outputImpl.outputFileName.set("NekoPort-$baseVersionName-$label.apk")
+            outputImpl.versionCode.set(baseVersionCode * 10 + abiCode)
+        }
     }
 }
 

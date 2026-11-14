@@ -97,11 +97,16 @@ NekoPort 是一款开源的 Android Web 服务器应用，功能形态类似 KSW
 
 | 文件 | 说明 |
 | --- | --- |
-| `NekoPort-vX.Y.Z-release.apk` | 正式签名的发布版（推荐） |
+| `NekoPort-<版本>-armv8a.apk` | arm64-v8a 设备（绝大多数现代手机，推荐） |
+| `NekoPort-<版本>-armv7.apk` | armeabi-v7a 设备 |
+| `NekoPort-<版本>-x86-64.apk` | x86_64 设备 / 模拟器 |
+| `NekoPort-<版本>-x86.apk` | x86 设备 / 模拟器 |
+| `NekoPort-<版本>-universe.apk` | 全架构通用包（不确定架构时选这个） |
 
 - 系统要求：**Android 8.0（API 26）或更高**
-- 支持架构：**arm64-v8a** / armeabi-v7a / x86_64
+- 支持架构：**arm64-v8a** / armeabi-v7a / x86_64 / x86
 - CI 全部构建产物均使用发布密钥签名，可在仓库 Actions 页面下载各次构建的 APK
+- 发布以版本 tag 为准：每次发布都是全新 tag 与全新 Release，旧 Release 与其说明不会被覆盖；功能不可用的版本会在标题标注 `[功能无法使用][待修复]`
 
 ## 从源码构建
 
