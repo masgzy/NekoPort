@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <files-path name="sites" path="sites/" />
+    <files-path name="php" path="php/" />
+    <cache-path name="cache" path="/" />
+</paths>
