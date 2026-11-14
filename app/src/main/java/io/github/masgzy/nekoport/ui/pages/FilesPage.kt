@@ -32,6 +32,7 @@ import io.github.masgzy.nekoport.core.AppLog
 import io.github.masgzy.nekoport.core.ConfigStore
 import io.github.masgzy.nekoport.core.ServerManager
 import io.github.masgzy.nekoport.core.MimeTypes
+import io.github.masgzy.nekoport.ui.NekoNav
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -71,6 +72,17 @@ fun FilesPage(contentPadding: PaddingValues) {
     var createIsFolder by remember { mutableStateOf(true) }
     var toast by remember { mutableStateOf<String?>(null) }
 
+    // Dashboard "open folder / edit files" requests land here.
+    val targetDir by NekoNav.filesTargetDir.collectAsState()
+    androidx.compose.runtime.LaunchedEffect(targetDir) {
+        val dir = targetDir ?: return@LaunchedEffect
+        if (dir.isDirectory || dir.mkdirs()) {
+            currentDir = dir
+            dirVersion++
+        }
+        NekoNav.consumeFilesTargetDir()
+    }
+
     val sites = config.sites
     val safeIndex = selectedSiteIndex.coerceIn(0, (sites.size - 1).coerceAtLeast(0))
 
@@ -100,6 +112,9 @@ fun FilesPage(contentPadding: PaddingValues) {
             compareBy({ !it.isDirectory }, { it.name.lowercase() })
         ) ?: emptyList()
     }
+    val parentDir = remember(dirVersion, currentDir) {
+        runCatching { currentDir.canonicalFile.parentFile }.getOrNull()
+    }
 
     LazyColumn(
         contentPadding = contentPadding,
@@ -109,91 +124,100 @@ fun FilesPage(contentPadding: PaddingValues) {
         // Site selector + toolbar
         item {
             Card {
-                if (sites.isEmpty()) {
-                    Text(
-                        text = stringResource(R.string.sites_empty),
-                        color = colorScheme.onSurfaceVariantSummary,
-                        modifier = Modifier.padding(16.dp),
-                    )
-                } else {
-                    OverlaySpinnerPreference(
-                        items = sites.map { DropdownItem(text = it.name, onClick = {}) },
-                        selectedIndex = safeIndex,
-                        title = stringResource(R.string.files_pick_site),
-                        onSelectedIndexChange = { idx ->
-                            selectedSiteIndex = idx
-                            currentDir = manager.siteDir(sites[idx].name).apply { mkdirs() }
-                            dirVersion++
-                        },
-                    )
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        TextButton(
-                            text = stringResource(R.string.files_upload),
-                            onClick = { uploadLauncher.launch(arrayOf("*/*")) },
-                            modifier = Modifier.weight(1f),
-                        )
-                        TextButton(
-                            text = stringResource(R.string.files_new_folder),
-                            onClick = {
-                                createIsFolder = true
-                                showCreateDialog = true
-                            },
-                            modifier = Modifier.weight(1f),
-                        )
-                        TextButton(
-                            text = stringResource(R.string.files_new_file),
-                            onClick = {
-                                createIsFolder = false
-                                showCreateDialog = true
-                            },
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-                    Text(
-                        text = currentDir.canonicalPath.removePrefix(manager.sitesRoot.canonicalPath).ifEmpty { "/" },
-                        color = colorScheme.onSurfaceVariantSummary,
-                        style = MiuixTheme.textStyles.subtitle,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
-                    )
-                }
-            }
-        }
-
-        // Parent directory entry
-        if (sites.isNotEmpty() && currentDir.canonicalPath != currentDir.canonicalFile.parentFile?.canonicalPath) {
-            val parent = currentDir.parentFile
-            if (parent != null && parent.canonicalPath.startsWith(manager.sitesRoot.canonicalPath)) {
-                item {
-                    Card(
+                OverlaySpinnerPreference(
+                    items = (listOf(stringResource(R.string.files_sites_root)) + sites.map { it.name })
+                        .map { DropdownItem(text = it, onClick = {}) },
+                    selectedIndex = safeIndex + 1,
+                    title = stringResource(R.string.files_pick_site),
+                    onSelectedIndexChange = { idx ->
+                        if (idx == 0) {
+                            currentDir = manager.sitesRoot
+                        } else {
+                            val site = sites.getOrNull(idx - 1) ?: return@OverlaySpinnerPreference
+                            currentDir = manager.siteDocRoot(site).apply { mkdirs() }
+                        }
+                        selectedSiteIndex = (idx - 1).coerceAtLeast(0)
+                        dirVersion++
+                    },
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    TextButton(
+                        text = stringResource(R.string.files_internal_storage),
                         onClick = {
-                            currentDir = parent
-                            dirVersion++
+                            scope.launch {
+                                val granted = SiteStorage.ensureStoragePermission(context)
+                                if (granted) {
+                                    currentDir = java.io.File("/sdcard")
+                                    dirVersion++
+                                } else {
+                                    toast = context.getString(R.string.files_storage_denied)
+                                }
+                            }
                         },
-                    ) {
-                        Text(
-                            text = "../",
-                            color = colorScheme.primary,
-                            style = MiuixTheme.textStyles.main,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                        )
-                    }
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(
+                        text = stringResource(R.string.files_upload),
+                        onClick = { uploadLauncher.launch(arrayOf("*/*")) },
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(
+                        text = stringResource(R.string.files_new_folder),
+                        onClick = {
+                            createIsFolder = true
+                            showCreateDialog = true
+                        },
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(
+                        text = stringResource(R.string.files_new_file),
+                        onClick = {
+                            createIsFolder = false
+                            showCreateDialog = true
+                        },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                Text(
+                    text = currentDir.canonicalPath,
+                    color = colorScheme.onSurfaceVariantSummary,
+                    style = MiuixTheme.textStyles.subtitle,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                )
+            }
+        }
+
+        // Parent directory entry ("..") - browsing may leave the sites root.
+        if (parentDir != null && parentDir.canonicalPath != currentDir.canonicalFile.canonicalPath) {
+            item {
+                Card(
+                    onClick = {
+                        currentDir = parentDir
+                        dirVersion++
+                    },
+                ) {
+                    Text(
+                        text = "../",
+                        color = colorScheme.primary,
+                        style = MiuixTheme.textStyles.main,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                    )
                 }
             }
         }
 
-        // Directory content (computed outside LazyListScope - remember must run in composition)
-        if (sites.isEmpty()) {
-            // nothing more
-        } else if (listing.isEmpty()) {
+        // Directory content
+        if (listing.isEmpty()) {
             item {
                 Card {
                     Text(
-                        text = stringResource(R.string.files_empty_dir),
+                        text = if (currentDir.exists()) stringResource(R.string.files_empty_dir)
+                        else stringResource(R.string.files_no_access),
                         color = colorScheme.onSurfaceVariantSummary,
                         modifier = Modifier.padding(16.dp),
                     )

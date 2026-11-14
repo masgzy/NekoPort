@@ -6,10 +6,9 @@
     <string name="notification_running_text">%1$d site(s) serving · FTP %2$s</string>
     <string name="notification_stop_action">Stop all services</string>
 
+    <string name="tab_dashboard">Dashboard</string>
     <string name="tab_sites">Sites</string>
-    <string name="tab_mysql">MySQL</string>
-    <string name="tab_ftp">FTP</string>
-    <string name="tab_cron">Tasks</string>
+    <string name="tab_manage">Manage</string>
     <string name="tab_files">Files</string>
     <string name="tab_settings">Settings</string>
 
@@ -18,6 +17,27 @@
     <string name="sites_master_switch_summary">Start all enabled sites, FTP and MySQL, kept alive by a foreground notification</string>
     <string name="sites_add">New site</string>
     <string name="sites_empty">Tap the button in the bottom-right corner to create your first site</string>
+
+    <!-- Dashboard -->
+    <string name="dashboard_components">Server components</string>
+    <string name="dashboard_sites">Sites</string>
+    <string name="dashboard_go_sites">Create a site</string>
+    <string name="dashboard_open_browser">Open the site in a browser</string>
+    <string name="dashboard_copied">Address copied</string>
+    <string name="dashboard_no_browser">No browser available</string>
+    <string name="dashboard_open_folder">Open folder</string>
+    <string name="dashboard_edit_files">Edit files</string>
+    <string name="dashboard_more">More</string>
+    <string name="dashboard_less">Less</string>
+    <string name="dashboard_install_hint">Install this component under Settings → Server components</string>
+    <string name="dashboard_component_fastcgi">FastCGI</string>
+
+    <!-- Manage -->
+    <string name="manage_engines">HTTP engines</string>
+    <string name="manage_ftp">FTP service</string>
+    <string name="manage_cron">Scheduled tasks</string>
+    <string name="manage_engine_no_sites">No sites use %1$s yet</string>
+    <string name="manage_add_site">Create a site</string>
     <string name="site_name">Site name</string>
     <string name="site_port">Listen port</string>
     <string name="site_docroot">Document root (absolute path, empty = default)</string>
@@ -66,6 +86,7 @@
     <string name="runtime_uninstall">Uninstall components</string>
     <string name="runtime_uninstall_confirm">All services will stop and cannot start until you reinstall. Uninstall now?</string>
     <string name="runtime_install_failed">Install failed: %1$s</string>
+    <string name="runtime_not_installed">Not installed</string>
     <string name="runtime_note">Binaries come from the Termux repository (native aarch64/arm/x86_64 builds), installed into the app private directory with hardened configs. First install needs network access, roughly 50-100 MB.</string>
 
     <!-- Mirrors -->
@@ -145,7 +166,11 @@
     <string name="ftp_save">Save and apply</string>
 
     <!-- Files -->
-    <string name="files_pick_site">Select site</string>
+    <string name="files_pick_site">Browse location</string>
+    <string name="files_sites_root">All site roots</string>
+    <string name="files_internal_storage">Internal storage</string>
+    <string name="files_storage_denied">Storage permission not granted - cannot browse internal storage</string>
+    <string name="files_no_access">Cannot read this directory (permission or path unavailable)</string>
     <string name="files_empty_dir">Empty directory</string>
     <string name="files_new_folder">New folder</string>
     <string name="files_new_file">New file</string>

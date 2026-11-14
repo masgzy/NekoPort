@@ -1,5 +1,6 @@
 package io.github.masgzy.nekoport.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
@@ -13,6 +14,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -24,10 +28,9 @@ import io.github.masgzy.nekoport.ui.component.FloatingBottomBarMode
 import io.github.masgzy.nekoport.ui.component.FloatingGlassBottomBar
 import io.github.masgzy.nekoport.ui.component.FloatingGlassBottomBarIcon
 import io.github.masgzy.nekoport.ui.component.FloatingGlassBottomBarLabel
-import io.github.masgzy.nekoport.ui.pages.CronPage
-import io.github.masgzy.nekoport.ui.pages.DatabasePage
+import io.github.masgzy.nekoport.ui.pages.DashboardPage
 import io.github.masgzy.nekoport.ui.pages.FilesPage
-import io.github.masgzy.nekoport.ui.pages.FtpPage
+import io.github.masgzy.nekoport.ui.pages.ManagePage
 import io.github.masgzy.nekoport.ui.pages.OverlayHost
 import io.github.masgzy.nekoport.ui.pages.SettingsPage
 import io.github.masgzy.nekoport.ui.pages.SitesPage
@@ -41,25 +44,32 @@ import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Folder
 import top.yukonga.miuix.kmp.icon.extended.Settings
-import top.yukonga.miuix.kmp.icon.extended.Tasks
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /** Bottom bar tab: miuix icons where available, official Material Symbols otherwise. */
-private sealed class NekoTabIcon {
+sealed class NekoTabIcon {
     data class Vector(val vector: androidx.compose.ui.graphics.vector.ImageVector) : NekoTabIcon()
     data class Resource(val res: Int) : NekoTabIcon()
 }
 
-private enum class NekoTab(
+enum class NekoTab(
     @StringRes val title: Int,
     val icon: NekoTabIcon,
 ) {
+    DASHBOARD(R.string.tab_dashboard, NekoTabIcon.Resource(R.drawable.ic_tab_dashboard)),
     SITES(R.string.tab_sites, NekoTabIcon.Resource(R.drawable.ic_tab_web)),
-    MYSQL(R.string.tab_mysql, NekoTabIcon.Resource(R.drawable.ic_tab_db)),
-    FTP(R.string.tab_ftp, NekoTabIcon.Resource(R.drawable.ic_tab_ftp)),
-    CRON(R.string.tab_cron, NekoTabIcon.Vector(MiuixIcons.Tasks)),
+    MANAGE(R.string.tab_manage, NekoTabIcon.Resource(R.drawable.ic_tab_manage)),
     FILES(R.string.tab_files, NekoTabIcon.Vector(MiuixIcons.Folder)),
     SETTINGS(R.string.tab_settings, NekoTabIcon.Vector(MiuixIcons.Settings)),
+    ;
+
+    companion object {
+        fun indexOf(tab: NekoTab): Int = entries.indexOf(tab)
+    }
+}
+
+object AppRoot {
+    fun tabIndexOf(tab: NekoTab): Int = NekoTab.indexOf(tab)
 }
 
 /**
@@ -69,6 +79,9 @@ private enum class NekoTab(
  * glass bar really sits on top of scrolling content; pages receive
  * [pagePadding] so their lists and floating buttons clear the bar.
  * Full-screen overlays (config editor / log viewer) render on top of it all.
+ *
+ * Tab order: Dashboard | Sites | Manage | Files | Settings. The system back
+ * button first returns to the Dashboard tab before leaving the app.
  */
 @Composable
 fun AppRoot(dark: Boolean) {
@@ -83,6 +96,20 @@ fun AppRoot(dark: Boolean) {
     }
     val navInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val contentBottomPadding = navInset + 96.dp
+
+    val tabRequest by NekoNav.tabRequest.collectAsState()
+    LaunchedEffect(tabRequest) {
+        val target = tabRequest ?: return@LaunchedEffect
+        pagerState.animateScrollToPage(target)
+        NekoNav.consumeTabRequest()
+    }
+
+    // Back first returns to the dashboard, then leaves the app. Overlay back
+    // handlers (editor / log viewer) are registered later in the composition
+    // and therefore take precedence while an overlay is visible.
+    BackHandler(enabled = pagerState.currentPage != NekoTab.indexOf(NekoTab.DASHBOARD)) {
+        scope.launch { pagerState.animateScrollToPage(NekoTab.indexOf(NekoTab.DASHBOARD)) }
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
@@ -114,10 +141,9 @@ fun AppRoot(dark: Boolean) {
                         start = 16.dp, end = 16.dp, bottom = contentBottomPadding,
                     )
                     when (NekoTab.entries[index]) {
+                        NekoTab.DASHBOARD -> DashboardPage(pagePadding)
                         NekoTab.SITES -> SitesPage(pagePadding)
-                        NekoTab.MYSQL -> DatabasePage(pagePadding)
-                        NekoTab.FTP -> FtpPage(pagePadding)
-                        NekoTab.CRON -> CronPage(pagePadding)
+                        NekoTab.MANAGE -> ManagePage(pagePadding)
                         NekoTab.FILES -> FilesPage(pagePadding)
                         NekoTab.SETTINGS -> SettingsPage(pagePadding)
                     }

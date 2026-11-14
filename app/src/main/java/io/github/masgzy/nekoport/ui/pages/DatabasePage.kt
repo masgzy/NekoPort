@@ -2,15 +2,11 @@ package io.github.masgzy.nekoport.ui.pages
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -30,8 +26,6 @@ import io.github.masgzy.nekoport.runtime.ConfigWriter
 import io.github.masgzy.nekoport.runtime.RuntimePackage
 import io.github.masgzy.nekoport.runtime.TermuxRuntime
 import io.github.masgzy.nekoport.ui.OverlayBus
-import io.github.masgzy.nekoport.ui.pages.EditorTarget
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.SmallTitle
@@ -42,8 +36,12 @@ import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
+/**
+ * MySQL (MariaDB) management panel, embedded in the Manage tab. Embedded in
+ * a non-scrolling Column - the surrounding ManagePage owns the scroll.
+ */
 @Composable
-fun DatabasePage(contentPadding: PaddingValues) {
+fun MariaPanel() {
     val manager = NekoApp.get().serverManager
     val state by manager.state.collectAsState()
     val config by manager.config.collectAsState()
@@ -61,74 +59,67 @@ fun DatabasePage(contentPadding: PaddingValues) {
         TermuxRuntime.isMariaDbInstalled(context)
     }
 
-    LazyColumn(
-        contentPadding = contentPadding,
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-        modifier = Modifier.fillMaxSize(),
-    ) {
-    if (!mariaInstalled) {
-        // Component missing: offer the install/update flow.
-        item {
-                Card {
-                    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        if (!mariaInstalled) {
+            // Component missing: offer the install/update flow.
+            Card {
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                    Text(
+                        text = stringResource(R.string.maria_component_title),
+                        color = colorScheme.onSurface,
+                        style = MiuixTheme.textStyles.title2,
+                    )
+                    Text(
+                        text = stringResource(R.string.maria_not_installed),
+                        color = colorScheme.onSurfaceVariantSummary,
+                        style = MiuixTheme.textStyles.main,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                    installProgress?.let {
                         Text(
-                            text = stringResource(R.string.maria_component_title),
-                            color = colorScheme.onSurface,
-                            style = MiuixTheme.textStyles.title2,
-                        )
-                        Text(
-                            text = stringResource(R.string.maria_not_installed),
-                            color = colorScheme.onSurfaceVariantSummary,
-                            style = MiuixTheme.textStyles.main,
+                            text = it,
+                            color = colorScheme.primary,
+                            style = MiuixTheme.textStyles.subtitle,
                             modifier = Modifier.padding(top = 4.dp),
                         )
-                        installProgress?.let {
-                            Text(
-                                text = it,
-                                color = colorScheme.primary,
-                                style = MiuixTheme.textStyles.subtitle,
-                                modifier = Modifier.padding(top = 4.dp),
-                            )
-                        }
-                        installError?.let {
-                            Text(
-                                text = stringResource(R.string.runtime_install_failed, it),
-                                color = colorScheme.primary,
-                                style = MiuixTheme.textStyles.subtitle,
-                                modifier = Modifier.padding(top = 4.dp),
-                            )
-                        }
                     }
-                    TextButton(
-                        text = stringResource(R.string.runtime_install),
-                        enabled = installProgress == null,
-                        onClick = {
-                            installProgress = context.getString(R.string.runtime_installing)
-                            installError = null
-                            scope.launch {
-                                val result = TermuxRuntime.install(context, config.settings.repoMirror) { progress ->
-                                    installProgress = when (progress) {
-                                        is TermuxRuntime.Progress.Package ->
-                                            "${progress.name} (${progress.index}/${progress.total})"
-                                        is TermuxRuntime.Progress.Download ->
-                                            "${progress.name} ${progress.percent}%"
-                                        is TermuxRuntime.Progress.Phase -> "..."
-                                    }
-                                }
-                                result.fold(
-                                    onSuccess = { installProgress = null },
-                                    onFailure = { installProgress = null; installError = it.message },
-                                )
-                                manager.refreshRuntimeStatus()
-                            }
-                        },
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                    )
+                    installError?.let {
+                        Text(
+                            text = stringResource(R.string.runtime_install_failed, it),
+                            color = colorScheme.primary,
+                            style = MiuixTheme.textStyles.subtitle,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                    }
                 }
+                TextButton(
+                    text = stringResource(R.string.runtime_install),
+                    enabled = installProgress == null,
+                    onClick = {
+                        installProgress = context.getString(R.string.runtime_installing)
+                        installError = null
+                        scope.launch {
+                            val result = TermuxRuntime.install(context, config.settings.repoMirror) { progress ->
+                                installProgress = when (progress) {
+                                    is TermuxRuntime.Progress.Package ->
+                                        "${progress.name} (${progress.index}/${progress.total})"
+                                    is TermuxRuntime.Progress.Download ->
+                                        "${progress.name} ${progress.percent}%"
+                                    is TermuxRuntime.Progress.Phase -> "..."
+                                }
+                            }
+                            result.fold(
+                                onSuccess = { installProgress = null },
+                                onFailure = { installProgress = null; installError = it.message },
+                            )
+                            manager.refreshRuntimeStatus()
+                        }
+                    },
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                )
             }
-    } else {
-        // Status + master switch
-        item {
+        } else {
+            // Status + master switch
             Card {
                 SwitchPreference(
                     title = stringResource(R.string.maria_enable),
@@ -152,11 +143,9 @@ fun DatabasePage(contentPadding: PaddingValues) {
                     },
                 )
             }
-        }
 
-        // Connection info
-        if (state.mariaRunning) {
-            item {
+            // Connection info
+            if (state.mariaRunning) {
                 SmallTitle(text = stringResource(R.string.maria_connection))
                 Card {
                     ArrowPreference(
@@ -174,10 +163,8 @@ fun DatabasePage(contentPadding: PaddingValues) {
                     }
                 }
             }
-        }
 
-        // Settings
-        item {
+            // Settings
             SmallTitle(text = stringResource(R.string.maria_settings))
             Card {
                 if (mariaVersion != null) {
@@ -211,10 +198,8 @@ fun DatabasePage(contentPadding: PaddingValues) {
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
             }
-        }
 
-        // Save + apply
-        item {
+            // Save + apply
             Row(modifier = Modifier.fillMaxWidth()) {
                 TextButton(
                     text = stringResource(R.string.maria_save),
@@ -239,10 +224,8 @@ fun DatabasePage(contentPadding: PaddingValues) {
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
-        }
 
-        // Files
-        item {
+            // Files
             SmallTitle(text = stringResource(R.string.maria_files))
             Card {
                 ArrowPreference(
@@ -277,5 +260,4 @@ fun DatabasePage(contentPadding: PaddingValues) {
             }
         }
     }
-}
 }

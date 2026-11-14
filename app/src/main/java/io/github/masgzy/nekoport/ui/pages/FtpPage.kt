@@ -2,12 +2,9 @@ package io.github.masgzy.nekoport.ui.pages
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -29,7 +26,6 @@ import io.github.masgzy.nekoport.core.NetUtils
 import io.github.masgzy.nekoport.core.ServerService
 import io.github.masgzy.nekoport.runtime.TermuxRuntime
 import io.github.masgzy.nekoport.ui.OverlayBus
-import io.github.masgzy.nekoport.ui.pages.EditorTarget
 import kotlinx.coroutines.delay
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.SmallTitle
@@ -41,8 +37,13 @@ import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import java.security.SecureRandom
 
+/**
+ * FTP management panel (Pure-FTPd), embedded in the Manage tab. The
+ * surrounding ManagePage owns scrolling; the address list refreshes on a
+ * lightweight local-only timer.
+ */
 @Composable
-fun FtpPage(contentPadding: PaddingValues) {
+fun FtpPanel() {
     val manager = NekoApp.get().serverManager
     val state by manager.state.collectAsState()
     val config by manager.config.collectAsState()
@@ -59,160 +60,53 @@ fun FtpPage(contentPadding: PaddingValues) {
     LaunchedEffect(Unit) {
         while (true) {
             addresses = NetUtils.localAddresses()
-            kotlinx.coroutines.delay(4000)
+            delay(4000)
         }
     }
 
-    LazyColumn(
-        contentPadding = contentPadding,
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-        modifier = Modifier.fillMaxSize(),
-    ) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         // Status + master switch
-        item {
-            Card {
-                SwitchPreference(
-                    title = stringResource(R.string.ftp_enable),
-                    summary = if (state.ftpRunning) {
-                        stringResource(R.string.ftp_status_running, ftp.port)
+        Card {
+            SwitchPreference(
+                title = stringResource(R.string.ftp_enable),
+                summary = if (state.ftpRunning) {
+                    stringResource(R.string.ftp_status_running, ftp.port)
+                } else {
+                    state.ftpStatusText ?: stringResource(R.string.ftp_status_stopped)
+                },
+                checked = state.ftpRunning,
+                onCheckedChange = { on ->
+                    if (on) {
+                        manager.updateFtp(ftp.copy(enabled = true))
+                        ServerService.start(context)
+                        manager.startFtpAsync()
                     } else {
-                        stringResource(R.string.ftp_status_stopped)
-                    },
-                    checked = state.ftpRunning,
-                    onCheckedChange = { on ->
-                        if (on) {
-                            manager.updateFtp(ftp.copy(enabled = true))
-                            ServerService.start(context)
-                            manager.startFtpAsync()
-                        } else {
-                            manager.updateFtp(ftp.copy(enabled = false))
-                            manager.stopFtpAsync()
-                        }
-                    },
-                )
-                state.ftpStatusText?.let {
-                    Text(
-                        text = it,
-                        color = colorScheme.onSurfaceVariantSummary,
-                        style = MiuixTheme.textStyles.subtitle,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                    )
-                }
-            }
+                        manager.updateFtp(ftp.copy(enabled = false))
+                        manager.stopFtpAsync()
+                    }
+                },
+            )
         }
 
         // Connection info
         if (state.ftpRunning) {
-            item {
-                SmallTitle(text = stringResource(R.string.ftp_connection))
-                Card {
-                    ArrowPreference(
-                        title = "ftp://${ftp.username}@${addresses.firstOrNull() ?: "127.0.0.1"}:${ftp.port}/",
-                        summary = stringResource(R.string.ftp_connection_hint),
-                        onClick = { },
-                    )
-                    addresses.forEach { ip ->
-                        Text(
-                            text = "ftp://$ip:${ftp.port}/",
-                            color = colorScheme.onSurfaceVariantSummary,
-                            style = MiuixTheme.textStyles.subtitle,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                        )
-                    }
+            SmallTitle(text = stringResource(R.string.ftp_connection))
+            Card {
+                ArrowPreference(
+                    title = "ftp://${ftp.username}@${addresses.firstOrNull() ?: "127.0.0.1"}:${ftp.port}/",
+                    summary = stringResource(R.string.ftp_connection_hint),
+                    onClick = { },
+                )
+                addresses.forEach { ip ->
                     Text(
-                        text = stringResource(R.string.ftp_root_hint),
+                        text = "ftp://$ip:${ftp.port}/",
                         color = colorScheme.onSurfaceVariantSummary,
                         style = MiuixTheme.textStyles.subtitle,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                     )
                 }
-            }
-        }
-
-        // Files (connection log)
-        item {
-            Card {
-                ArrowPreference(
-                    title = stringResource(R.string.ftp_open_log),
-                    onClick = {
-                        OverlayBus.openEditor(
-                            EditorTarget(
-                                title = "ftp.log",
-                                file = TermuxRuntime.logsDir(context).resolve("ftp.log"),
-                                readOnly = true,
-                            ),
-                        )
-                    },
-                )
-            }
-        }
-
-        // Account
-        item {
-            SmallTitle(text = stringResource(R.string.ftp_account))
-            Card {
-                TextField(
-                    value = username,
-                    onValueChange = { username = it },
-                    label = stringResource(R.string.ftp_username),
-                    useLabelAsPlaceholder = true,
-                    singleLine = true,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                )
-                TextField(
-                    value = password,
-                    onValueChange = { password = it },
-                    label = stringResource(R.string.ftp_password),
-                    useLabelAsPlaceholder = true,
-                    singleLine = true,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                )
-                TextButton(
-                    text = stringResource(R.string.ftp_generate),
-                    onClick = {
-                        val alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789"
-                        val random = SecureRandom()
-                        password = TextFieldValue(
-                            (1..20).map { alphabet[random.nextInt(alphabet.length)] }.joinToString("")
-                        )
-                    },
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                )
-            }
-        }
-
-        // Ports
-        item {
-            SmallTitle(text = stringResource(R.string.ftp_ports))
-            Card {
-                TextField(
-                    value = port,
-                    onValueChange = { port = it },
-                    label = stringResource(R.string.ftp_port),
-                    useLabelAsPlaceholder = true,
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                )
-                TextField(
-                    value = pasvStart,
-                    onValueChange = { pasvStart = it },
-                    label = stringResource(R.string.ftp_pasv_start),
-                    useLabelAsPlaceholder = true,
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                )
                 Text(
-                    text = stringResource(R.string.ftp_pasv_hint, (pasvStart.text.toIntOrNull() ?: 50000) + 32),
+                    text = stringResource(R.string.ftp_root_hint),
                     color = colorScheme.onSurfaceVariantSummary,
                     style = MiuixTheme.textStyles.subtitle,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
@@ -220,31 +114,114 @@ fun FtpPage(contentPadding: PaddingValues) {
             }
         }
 
+        // Files (connection log)
+        Card {
+            ArrowPreference(
+                title = stringResource(R.string.ftp_open_log),
+                onClick = {
+                    OverlayBus.openEditor(
+                        EditorTarget(
+                            title = "ftp.log",
+                            file = TermuxRuntime.logsDir(context).resolve("ftp.log"),
+                            readOnly = true,
+                        ),
+                    )
+                },
+            )
+        }
+
+        // Account
+        SmallTitle(text = stringResource(R.string.ftp_account))
+        Card {
+            TextField(
+                value = username,
+                onValueChange = { username = it },
+                label = stringResource(R.string.ftp_username),
+                useLabelAsPlaceholder = true,
+                singleLine = true,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+            )
+            TextField(
+                value = password,
+                onValueChange = { password = it },
+                label = stringResource(R.string.ftp_password),
+                useLabelAsPlaceholder = true,
+                singleLine = true,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+            )
+            TextButton(
+                text = stringResource(R.string.ftp_generate),
+                onClick = {
+                    val alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789"
+                    val random = SecureRandom()
+                    password = TextFieldValue(
+                        (1..20).map { alphabet[random.nextInt(alphabet.length)] }.joinToString("")
+                    )
+                },
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            )
+        }
+
+        // Ports
+        SmallTitle(text = stringResource(R.string.ftp_ports))
+        Card {
+            TextField(
+                value = port,
+                onValueChange = { port = it },
+                label = stringResource(R.string.ftp_port),
+                useLabelAsPlaceholder = true,
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+            )
+            TextField(
+                value = pasvStart,
+                onValueChange = { pasvStart = it },
+                label = stringResource(R.string.ftp_pasv_start),
+                useLabelAsPlaceholder = true,
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+            )
+            Text(
+                text = stringResource(R.string.ftp_pasv_hint, (pasvStart.text.toIntOrNull() ?: 50000) + 32),
+                color = colorScheme.onSurfaceVariantSummary,
+                style = MiuixTheme.textStyles.subtitle,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+        }
+
         // Save + apply
-        item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                TextButton(
-                    text = stringResource(R.string.ftp_save),
-                    onClick = {
-                        val portNum = port.text.toIntOrNull()?.takeIf { FtpConfig.isPortValid(it) } ?: ftp.port
-                        val pasvNum = pasvStart.text.toIntOrNull()?.takeIf { FtpConfig.isPortValid(it) }
-                            ?: ftp.passivePortStart
-                        val newFtp = ftp.copy(
-                            username = username.text.trim().ifEmpty { ftp.username },
-                            password = password.text.ifEmpty { ftp.password },
-                            port = portNum,
-                            passivePortStart = pasvNum,
-                        )
-                        val wasRunning = state.ftpRunning
-                        manager.updateFtp(newFtp)
-                        if (wasRunning) manager.startFtpAsync()
-                    },
-                    modifier = Modifier.weight(1f),
-                )
-            }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            TextButton(
+                text = stringResource(R.string.ftp_save),
+                onClick = {
+                    val portNum = port.text.toIntOrNull()?.takeIf { FtpConfig.isPortValid(it) } ?: ftp.port
+                    val pasvNum = pasvStart.text.toIntOrNull()?.takeIf { FtpConfig.isPortValid(it) }
+                        ?: ftp.passivePortStart
+                    val newFtp = ftp.copy(
+                        username = username.text.trim().ifEmpty { ftp.username },
+                        password = password.text.ifEmpty { ftp.password },
+                        port = portNum,
+                        passivePortStart = pasvNum,
+                    )
+                    val wasRunning = state.ftpRunning
+                    manager.updateFtp(newFtp)
+                    if (wasRunning) manager.startFtpAsync()
+                },
+                modifier = Modifier.weight(1f),
+            )
         }
     }
 }

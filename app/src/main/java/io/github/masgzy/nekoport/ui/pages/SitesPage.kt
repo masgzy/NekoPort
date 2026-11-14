@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -30,13 +31,13 @@ import androidx.compose.ui.unit.dp
 import io.github.masgzy.nekoport.NekoApp
 import io.github.masgzy.nekoport.R
 import io.github.masgzy.nekoport.core.Engine
-import io.github.masgzy.nekoport.core.ServerService
 import io.github.masgzy.nekoport.core.SiteConfig
 import io.github.masgzy.nekoport.core.SiteRuntime
 import io.github.masgzy.nekoport.runtime.ConfigWriter
-import io.github.masgzy.nekoport.runtime.RuntimePackage
-import io.github.masgzy.nekoport.runtime.TermuxRuntime
+import io.github.masgzy.nekoport.ui.AppRoot
+import io.github.masgzy.nekoport.ui.NekoNav
 import io.github.masgzy.nekoport.ui.OverlayBus
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.DropdownItem
@@ -54,14 +55,27 @@ import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import java.io.File
 
+/**
+ * Sites tab: the list of HTTP sites plus the new-site flow. The component
+ * status card, the PHP card and the run-all switch live on the dashboard /
+ * manage tabs; config & log entries of a site are hidden behind "more".
+ */
 @Composable
 fun SitesPage(contentPadding: PaddingValues) {
     val manager = NekoApp.get().serverManager
     val state by manager.state.collectAsState()
     val colorScheme = MiuixTheme.colorScheme
-    val context = LocalContext.current
     var showEditor by rememberSaveable { mutableStateOf(false) }
     var editingSite by remember { mutableStateOf<SiteConfig?>(null) }
+
+    // Dashboard "edit" buttons land here and open the editor dialog directly.
+    val pendingEdit by NekoNav.editSiteRequest.collectAsState()
+    LaunchedEffect(pendingEdit) {
+        val id = pendingEdit ?: return@LaunchedEffect
+        val site = manager.config.value.sites.firstOrNull { it.id == id }
+        if (site != null) editingSite = site
+        NekoNav.consumeEditSiteRequest()
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
@@ -69,32 +83,6 @@ fun SitesPage(contentPadding: PaddingValues) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
             modifier = Modifier.fillMaxSize(),
         ) {
-            // Master switch - starts/stops every enabled service in a
-            // foreground service so servers survive leaving the app.
-            item {
-                Card {
-                    SwitchPreference(
-                        title = stringResource(R.string.sites_master_switch),
-                        summary = stringResource(R.string.sites_master_switch_summary),
-                        checked = state.running,
-                        onCheckedChange = { on ->
-                            if (on) ServerService.start(context) else ServerService.stop(context)
-                        },
-                    )
-                }
-            }
-
-            // Bundled real-server runtime status.
-            item {
-                RuntimeCard()
-            }
-
-            // PHP management (php.ini / php-fpm pools / logs), mirroring the
-            // classic PHP tab.
-            item {
-                PhpCard()
-            }
-
             if (state.sites.isEmpty()) {
                 item {
                     Card {
@@ -157,156 +145,12 @@ fun SitesPage(contentPadding: PaddingValues) {
 }
 
 @Composable
-private fun RuntimeCard() {
-    val manager = NekoApp.get().serverManager
-    val state by manager.state.collectAsState()
-    val config by manager.config.collectAsState()
-    val colorScheme = MiuixTheme.colorScheme
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val scope = androidx.compose.runtime.rememberCoroutineScope()
-    val runtime = state.runtime
-    var progressText by remember { mutableStateOf<String?>(null) }
-
-    Card {
-        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-            Text(
-                text = stringResource(R.string.runtime_title),
-                color = colorScheme.onSurface,
-                style = MiuixTheme.textStyles.title2,
-            )
-            Text(
-                text = if (runtime.installed) {
-                    val versions = runtime.versions.entries.joinToString(", ") {
-                        "${it.key.label} ${it.value}"
-                    }
-                    versions.ifEmpty { stringResource(R.string.runtime_ready) }
-                } else {
-                    stringResource(R.string.runtime_missing)
-                },
-                color = colorScheme.onSurfaceVariantSummary,
-                style = MiuixTheme.textStyles.subtitle,
-                modifier = Modifier.padding(top = 4.dp),
-            )
-            progressText?.let {
-                Text(
-                    text = it,
-                    color = colorScheme.primary,
-                    style = MiuixTheme.textStyles.subtitle,
-                    modifier = Modifier.padding(top = 4.dp),
-                )
-            }
-        }
-        if (!runtime.installed) {
-            TextButton(
-                text = stringResource(R.string.runtime_install),
-                enabled = progressText == null,
-                onClick = {
-                    progressText = context.getString(R.string.runtime_installing)
-                    scope.launch {
-                        val mirror = config.settings.repoMirror
-                        val result = TermuxRuntime.install(context, mirror) { progress ->
-                            progressText = when (progress) {
-                                is TermuxRuntime.Progress.Phase -> "..."
-                                is TermuxRuntime.Progress.Package ->
-                                    "${progress.name} (${progress.index}/${progress.total})"
-                                is TermuxRuntime.Progress.Download ->
-                                    "${progress.name} ${progress.percent}%"
-                            }
-                        }
-                        result.fold(
-                            onSuccess = { progressText = null },
-                            onFailure = {
-                                progressText = it.message
-                            },
-                        )
-                        manager.refreshRuntimeStatus()
-                    }
-                },
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-            )
-        }
-    }
-}
-
-@Composable
-private fun PhpCard() {
-    val manager = NekoApp.get().serverManager
-    val config by manager.config.collectAsState()
-    val state by manager.state.collectAsState()
-    val colorScheme = MiuixTheme.colorScheme
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val scope = androidx.compose.runtime.rememberCoroutineScope()
-    val version = state.runtime.versions[RuntimePackage.PHP_FPM]
-
-    Card {
-        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-            Text(
-                text = stringResource(R.string.php_title),
-                color = colorScheme.onSurface,
-                style = MiuixTheme.textStyles.title2,
-            )
-            Text(
-                text = version?.let { "PHP v$it" } ?: stringResource(R.string.php_not_installed),
-                color = colorScheme.onSurfaceVariantSummary,
-                style = MiuixTheme.textStyles.subtitle,
-                modifier = Modifier.padding(top = 4.dp),
-            )
-        }
-        ArrowPreference(
-            title = "php.ini",
-            summary = stringResource(R.string.php_edit_ini),
-            onClick = {
-                scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                    ConfigWriter.writePhpIni(context)
-                    val file = ConfigWriter.ensureUserCopy(ConfigWriter.phpIniAuto(context))
-                    OverlayBus.openEditor(
-                        EditorTarget(
-                            title = "php.ini",
-                            file = file,
-                            resetAction = { ConfigWriter.resetToAuto(ConfigWriter.phpIniAuto(context)) },
-                        ),
-                    )
-                }
-            },
-        )
-        ArrowPreference(
-            title = "php-fpm.conf",
-            summary = stringResource(R.string.php_edit_fpm_conf),
-            onClick = {
-                scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                    ConfigWriter.writePhpFpmConf(context, config.sites)
-                    val file = ConfigWriter.ensureUserCopy(ConfigWriter.phpFpmConfAuto(context))
-                    OverlayBus.openEditor(
-                        EditorTarget(
-                            title = "php-fpm.conf",
-                            file = file,
-                            resetAction = { ConfigWriter.resetToAuto(ConfigWriter.phpFpmConfAuto(context)) },
-                        ),
-                    )
-                }
-            },
-        )
-        ArrowPreference(
-            title = stringResource(R.string.php_open_log),
-            onClick = {
-                OverlayBus.openEditor(
-                    EditorTarget(
-                        title = "php-fpm-error.log",
-                        file = ConfigWriter.logsDir(context).resolve("php-fpm-error.log"),
-                        readOnly = true,
-                    ),
-                )
-            },
-        )
-    }
-}
-
-@Composable
 private fun SiteCard(runtime: SiteRuntime, onEdit: () -> Unit) {
     val manager = NekoApp.get().serverManager
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     val colorScheme = MiuixTheme.colorScheme
+    var showMore by rememberSaveable(runtime.site.id) { mutableStateOf(false) }
     Card {
         SwitchPreference(
             title = "${runtime.site.name} :${runtime.site.port}",
@@ -318,7 +162,7 @@ private fun SiteCard(runtime: SiteRuntime, onEdit: () -> Unit) {
                     if (runtime.running) {
                         stringResource(R.string.site_status_running)
                     } else {
-                        stringResource(R.string.site_status_stopped)
+                        runtime.statusText ?: stringResource(R.string.site_status_stopped)
                     },
                 )
             },
@@ -339,34 +183,46 @@ private fun SiteCard(runtime: SiteRuntime, onEdit: () -> Unit) {
             title = stringResource(R.string.site_edit),
             onClick = onEdit,
         )
-        ArrowPreference(
-            title = stringResource(R.string.site_edit_conf),
-            onClick = {
-                scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                    val auto = ConfigWriter.writeEngineConf(context, runtime.site, manager.siteDocRoot(runtime.site))
-                    val file = ConfigWriter.ensureUserCopy(auto)
+        // Config/log entries stay hidden behind "more" by default.
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End,
+        ) {
+            TextButton(
+                text = if (showMore) stringResource(R.string.dashboard_less) else stringResource(R.string.dashboard_more),
+                onClick = { showMore = !showMore },
+            )
+        }
+        if (showMore) {
+            ArrowPreference(
+                title = stringResource(R.string.site_edit_conf),
+                onClick = {
+                    scope.launch(Dispatchers.IO) {
+                        val auto = ConfigWriter.writeEngineConf(context, runtime.site, manager.siteDocRoot(runtime.site))
+                        val file = ConfigWriter.ensureUserCopy(auto)
+                        OverlayBus.openEditor(
+                            EditorTarget(
+                                title = "${runtime.site.name} · ${runtime.site.engine.displayName}",
+                                file = file,
+                                resetAction = { ConfigWriter.resetToAuto(auto) },
+                            ),
+                        )
+                    }
+                },
+            )
+            ArrowPreference(
+                title = stringResource(R.string.site_open_log),
+                onClick = {
                     OverlayBus.openEditor(
                         EditorTarget(
-                            title = "${runtime.site.name} · ${runtime.site.engine.displayName}",
-                            file = file,
-                            resetAction = { ConfigWriter.resetToAuto(auto) },
+                            title = "site-${runtime.site.id}-error.log",
+                            file = ConfigWriter.siteErrorLog(context, runtime.site.id, runtime.site.engine),
+                            readOnly = true,
                         ),
                     )
-                }
-            },
-        )
-        ArrowPreference(
-            title = stringResource(R.string.site_open_log),
-            onClick = {
-                OverlayBus.openEditor(
-                    EditorTarget(
-                        title = "site-${runtime.site.id}-error.log",
-                        file = ConfigWriter.siteErrorLog(context, runtime.site.id, runtime.site.engine),
-                        readOnly = true,
-                    ),
-                )
-            },
-        )
+                },
+            )
+        }
     }
 }
 
@@ -580,7 +436,7 @@ private fun SiteEditorDialog(site: SiteConfig?, onDismiss: () -> Unit) {
                             }
                             finalName = candidate
                             // All disk work and the (blocking) service launch run on IO.
-                            scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                            scope.launch(Dispatchers.IO) {
                                 val docRootValue = docRoot.text.trim()
                                 if (docRootValue.isEmpty()) {
                                     val dir = manager.siteDir(finalName)
@@ -628,7 +484,7 @@ private fun SiteEditorDialog(site: SiteConfig?, onDismiss: () -> Unit) {
                             )
                             val wasRunning = manager.state.value.sites
                                 .firstOrNull { it.site.id == edited.id }?.running ?: false
-                            scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                            scope.launch(Dispatchers.IO) {
                                 if (wasRunning) manager.stopSite(edited.id)
                                 manager.updateSites(config.sites.map { if (it.id == edited.id) edited else it })
                                 if (wasRunning && edited.enabled) manager.startSite(edited)

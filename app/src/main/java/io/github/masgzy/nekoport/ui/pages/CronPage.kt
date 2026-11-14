@@ -1,26 +1,18 @@
 package io.github.masgzy.nekoport.ui.pages
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
@@ -33,13 +25,10 @@ import io.github.masgzy.nekoport.runtime.ConfigWriter
 import io.github.masgzy.nekoport.ui.OverlayBus
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.DropdownItem
-import top.yukonga.miuix.kmp.basic.FloatingActionButton
-import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TextField
-import top.yukonga.miuix.kmp.icon.MiuixIcons
-import top.yukonga.miuix.kmp.icon.extended.Add
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.OverlaySpinnerPreference
@@ -49,125 +38,101 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+/**
+ * Scheduled-task panel, embedded in the Manage tab. The add-task FAB of the
+ * old standalone tab becomes a plain action row here.
+ */
 @Composable
-fun CronPage(contentPadding: PaddingValues) {
+fun CronPanel() {
     val manager = NekoApp.get().serverManager
-    val state by manager.state.collectAsState()
     val config by manager.config.collectAsState()
     val cron = config.cron
     val colorScheme = MiuixTheme.colorScheme
-    var showEditor by rememberSaveable { mutableStateOf(false) }
+    var showEditor by remember { mutableStateOf(false) }
     var editingTask by remember { mutableStateOf<CronTask?>(null) }
 
-    LaunchedEffect(Unit) {
-        while (true) {
-            manager.refresh()
-            kotlinx.coroutines.delay(4000)
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        // Master switch
+        Card {
+            SwitchPreference(
+                title = stringResource(R.string.cron_enable),
+                summary = stringResource(R.string.cron_enable_summary),
+                checked = cron.enabled,
+                onCheckedChange = { manager.updateCron(cron.copy(enabled = it)) },
+            )
         }
-    }
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        LazyColumn(
-            contentPadding = contentPadding,
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            modifier = Modifier.fillMaxSize(),
-        ) {
-            // Master switch
-            item {
-                Card {
-                    SwitchPreference(
-                        title = stringResource(R.string.cron_enable),
-                        summary = stringResource(R.string.cron_enable_summary),
-                        checked = cron.enabled,
-                        onCheckedChange = { manager.updateCron(cron.copy(enabled = it)) },
+        // Logging
+        SmallTitle(text = stringResource(R.string.cron_logs))
+        Card {
+            SwitchPreference(
+                title = stringResource(R.string.cron_log_enabled),
+                checked = cron.logEnabled,
+                onCheckedChange = { manager.updateCron(cron.copy(logEnabled = it)) },
+            )
+            ArrowPreference(
+                title = stringResource(R.string.cron_open_log),
+                onClick = {
+                    val log = ConfigWriter.cronLog(NekoApp.get())
+                    if (!log.exists()) {
+                        runCatching {
+                            log.parentFile?.mkdirs()
+                            log.writeText("")
+                        }
+                    }
+                    OverlayBus.openEditor(
+                        EditorTarget(title = "cron.log", file = log, readOnly = true),
                     )
-                }
+                },
+            )
+        }
+
+        // Task list
+        SmallTitle(
+            text = stringResource(R.string.cron_tasks) +
+                " (${cron.tasks.count { it.enabled }}/${cron.tasks.size})",
+        )
+        if (cron.tasks.isEmpty()) {
+            Card {
+                Text(
+                    text = stringResource(R.string.cron_empty),
+                    color = colorScheme.onSurfaceVariantSummary,
+                    style = MiuixTheme.textStyles.main,
+                    modifier = Modifier.padding(16.dp),
+                )
             }
-
-            // Logging
-            item {
-                SmallTitleCompat(stringResource(R.string.cron_logs))
+        } else {
+            cron.tasks.forEach { task ->
                 Card {
                     SwitchPreference(
-                        title = stringResource(R.string.cron_log_enabled),
-                        checked = cron.logEnabled,
-                        onCheckedChange = { manager.updateCron(cron.copy(logEnabled = it)) },
-                    )
-                    ArrowPreference(
-                        title = stringResource(R.string.cron_open_log),
-                        onClick = {
-                            val log = ConfigWriter.cronLog(NekoApp.get())
-                            if (!log.exists()) {
-                                runCatching {
-                                    log.parentFile?.mkdirs()
-                                    log.writeText("")
-                                }
-                            }
-                            OverlayBus.openEditor(
-                                EditorTarget(title = "cron.log", file = log, readOnly = true),
+                        title = task.name,
+                        summary = "${task.expr} · ${cronActionLabel(task.action)}" +
+                            if (task.enabled) "" else " · " + stringResource(R.string.cron_task_disabled),
+                        checked = task.enabled,
+                        onCheckedChange = { on ->
+                            manager.updateCron(
+                                cron.copy(
+                                    tasks = cron.tasks.map {
+                                        if (it.id == task.id) it.copy(enabled = on) else it
+                                    },
+                                ),
                             )
                         },
                     )
-                }
-            }
-
-            // Task list
-            item {
-                SmallTitleCompat(
-                    stringResource(R.string.cron_tasks) +
-                        " (${cron.tasks.count { it.enabled }}/${cron.tasks.size})",
-                )
-            }
-            if (cron.tasks.isEmpty()) {
-                item {
-                    Card {
-                        Text(
-                            text = stringResource(R.string.cron_empty),
-                            color = colorScheme.onSurfaceVariantSummary,
-                            style = MiuixTheme.textStyles.main,
-                            modifier = Modifier.padding(16.dp),
-                        )
-                    }
-                }
-            } else {
-                items(cron.tasks, key = { it.id }) { task ->
-                    Card {
-                        SwitchPreference(
-                            title = task.name,
-                            summary = "${task.expr} · ${cronActionLabel(task.action)}" +
-                                if (task.enabled) "" else " · " + stringResource(R.string.cron_task_disabled),
-                            checked = task.enabled,
-                            onCheckedChange = { on ->
-                                manager.updateCron(
-                                    cron.copy(
-                                        tasks = cron.tasks.map {
-                                            if (it.id == task.id) it.copy(enabled = on) else it
-                                        },
-                                    ),
-                                )
-                            },
-                        )
-                        ArrowPreference(
-                            title = stringResource(R.string.cron_edit_task),
-                            onClick = { editingTask = task },
-                        )
-                    }
+                    ArrowPreference(
+                        title = stringResource(R.string.cron_edit_task),
+                        onClick = { editingTask = task },
+                    )
                 }
             }
         }
 
-        FloatingActionButton(
-            onClick = { showEditor = true },
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(bottom = contentPadding.calculateBottomPadding() + 16.dp, end = 16.dp)
-                .size(56.dp),
-        ) {
-            Icon(
-                imageVector = MiuixIcons.Add,
-                contentDescription = stringResource(R.string.cron_add),
-                tint = MiuixTheme.colorScheme.onPrimary,
-                modifier = Modifier.size(26.dp),
+        // Add task (was the FAB of the standalone tab)
+        Row(modifier = Modifier.fillMaxWidth()) {
+            TextButton(
+                text = stringResource(R.string.cron_add),
+                onClick = { showEditor = true },
+                modifier = Modifier.fillMaxWidth(),
             )
         }
     }
@@ -178,16 +143,6 @@ fun CronPage(contentPadding: PaddingValues) {
     editingTask?.let { task ->
         TaskEditorDialog(task = task, onDismiss = { editingTask = null })
     }
-}
-
-@Composable
-private fun SmallTitleCompat(text: String) {
-    Text(
-        text = text,
-        style = MiuixTheme.textStyles.subtitle,
-        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-        modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 2.dp),
-    )
 }
 
 @Composable
@@ -204,7 +159,7 @@ private fun TaskEditorDialog(task: CronTask?, onDismiss: () -> Unit) {
     val manager = NekoApp.get().serverManager
     val config by manager.config.collectAsState()
     val cron = config.cron
-    val context = androidx.compose.ui.platform.LocalContext.current
+    val context = LocalContext.current
     val isNew = task == null
 
     var name by remember { mutableStateOf(TextFieldValue(task?.name ?: "")) }

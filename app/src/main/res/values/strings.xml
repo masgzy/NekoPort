@@ -6,10 +6,9 @@
     <string name="notification_running_text">%1$d 个站点服务中 · FTP %2$s</string>
     <string name="notification_stop_action">停止全部服务</string>
 
+    <string name="tab_dashboard">仪表盘</string>
     <string name="tab_sites">站点</string>
-    <string name="tab_mysql">MySQL</string>
-    <string name="tab_ftp">FTP</string>
-    <string name="tab_cron">计划任务</string>
+    <string name="tab_manage">管理</string>
     <string name="tab_files">文件</string>
     <string name="tab_settings">设置</string>
 
@@ -18,6 +17,27 @@
     <string name="sites_master_switch_summary">启动所有已启用站点、FTP 与 MySQL，并在通知栏保持常驻</string>
     <string name="sites_add">新建站点</string>
     <string name="sites_empty">点击右下角按钮创建第一个站点</string>
+
+    <!-- Dashboard -->
+    <string name="dashboard_components">服务器组件</string>
+    <string name="dashboard_sites">站点</string>
+    <string name="dashboard_go_sites">去创建站点</string>
+    <string name="dashboard_open_browser">在浏览器中打开站点</string>
+    <string name="dashboard_copied">地址已复制</string>
+    <string name="dashboard_no_browser">未找到可用的浏览器</string>
+    <string name="dashboard_open_folder">打开文件夹</string>
+    <string name="dashboard_edit_files">编辑文件</string>
+    <string name="dashboard_more">更多</string>
+    <string name="dashboard_less">收起</string>
+    <string name="dashboard_install_hint">请前往「设置 → 服务器组件」安装该组件</string>
+    <string name="dashboard_component_fastcgi">FastCGI</string>
+
+    <!-- Manage -->
+    <string name="manage_engines">HTTP 引擎</string>
+    <string name="manage_ftp">FTP 服务</string>
+    <string name="manage_cron">计划任务</string>
+    <string name="manage_engine_no_sites">当前没有使用 %1$s 的站点</string>
+    <string name="manage_add_site">去新建站点</string>
     <string name="site_name">站点名称</string>
     <string name="site_port">监听端口</string>
     <string name="site_docroot">站点目录（绝对路径，留空使用默认目录）</string>
@@ -66,6 +86,7 @@
     <string name="runtime_uninstall">卸载组件</string>
     <string name="runtime_uninstall_confirm">卸载后所有服务将停止且无法启动，直到重新安装。确定卸载？</string>
     <string name="runtime_install_failed">安装失败：%1$s</string>
+    <string name="runtime_not_installed">未安装</string>
     <string name="runtime_note">运行时来自 Termux 软件源（aarch64/arm/x86_64 原生编译），安装于应用私有目录，配置文件已内置安全加固。首次安装需要联网，约 50-100 MB。</string>
 
     <!-- Mirrors -->
@@ -145,7 +166,11 @@
     <string name="ftp_save">保存并应用</string>
 
     <!-- Files -->
-    <string name="files_pick_site">选择站点</string>
+    <string name="files_pick_site">浏览位置</string>
+    <string name="files_sites_root">全部站点根目录</string>
+    <string name="files_internal_storage">内部存储</string>
+    <string name="files_storage_denied">未获得存储权限，无法浏览内部存储</string>
+    <string name="files_no_access">无法读取该目录（权限或路径不可用）</string>
     <string name="files_empty_dir">目录为空</string>
     <string name="files_new_folder">新建文件夹</string>
     <string name="files_new_file">新建文件</string>
