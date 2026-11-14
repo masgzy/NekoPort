@@ -38,7 +38,9 @@ import io.github.masgzy.nekoport.R
 import io.github.masgzy.nekoport.core.Engine
 import io.github.masgzy.nekoport.core.SiteConfig
 import io.github.masgzy.nekoport.core.SiteRuntime
+import io.github.masgzy.nekoport.runtime.ConfigWriter
 import io.github.masgzy.nekoport.ui.NekoNav
+import io.github.masgzy.nekoport.ui.OverlayBus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Card
@@ -51,6 +53,8 @@ import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Add
 import top.yukonga.miuix.kmp.icon.extended.Edit
+import top.yukonga.miuix.kmp.icon.extended.File
+import top.yukonga.miuix.kmp.icon.extended.Notes
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.preference.OverlaySpinnerPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
@@ -155,10 +159,29 @@ fun SitesPage(contentPadding: PaddingValues) {
 private fun SiteCard(runtime: SiteRuntime, onEdit: () -> Unit) {
     val manager = NekoApp.get().serverManager
     val colorScheme = MiuixTheme.colorScheme
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val site = runtime.site
+    val docRoot = manager.siteDocRoot(site)
+
+    fun openConf() {
+        scope.launch(Dispatchers.IO) {
+            val auto = ConfigWriter.writeEngineConf(context, site, docRoot)
+            val file = ConfigWriter.ensureUserCopy(auto)
+            OverlayBus.openEditor(
+                EditorTarget(
+                    title = "${site.name} · ${site.engine.displayName}",
+                    file = file,
+                    resetAction = { ConfigWriter.resetToAuto(auto) },
+                ),
+            )
+        }
+    }
+
     Card {
-        // Title row: name + status on the left, pen (edit site) + switch on
-        // the right. The former "编辑站点" row and the "更多" expander are
-        // gone; config/log entries live on the dashboard card.
+        // Title row: name + status on the left, then the config-file and log
+        // shortcuts, the pen (edit site) and the switch. The former
+        // "编辑站点" row and the "更多" expander are gone.
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -190,6 +213,36 @@ private fun SiteCard(runtime: SiteRuntime, onEdit: () -> Unit) {
                     overflow = TextOverflow.Ellipsis,
                 )
             }
+            IconAction(
+                icon = {
+                    Icon(
+                        MiuixIcons.File,
+                        contentDescription = stringResource(R.string.site_edit_conf),
+                        tint = colorScheme.primary,
+                    )
+                },
+                contentDescription = stringResource(R.string.site_edit_conf),
+                onClick = { openConf() },
+            )
+            IconAction(
+                icon = {
+                    Icon(
+                        MiuixIcons.Notes,
+                        contentDescription = stringResource(R.string.dashboard_open_log),
+                        tint = colorScheme.primary,
+                    )
+                },
+                contentDescription = stringResource(R.string.dashboard_open_log),
+                onClick = {
+                    OverlayBus.openEditor(
+                        EditorTarget(
+                            title = "site-${site.id}-error.log",
+                            file = ConfigWriter.siteErrorLog(context, site.id, site.engine),
+                            readOnly = true,
+                        ),
+                    )
+                },
+            )
             IconAction(
                 icon = { Icon(MiuixIcons.Edit, contentDescription = stringResource(R.string.site_edit), tint = colorScheme.onSurface) },
                 tint = colorScheme.onSurface,

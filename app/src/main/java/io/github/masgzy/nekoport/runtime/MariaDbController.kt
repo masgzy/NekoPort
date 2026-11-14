@@ -15,6 +15,10 @@ object MariaDbController {
     private const val TAG = "MariaDb"
     private const val KEY = "maria"
 
+    /** The currently running `mariadb-install-db` bootstrap, so [stop] can abort it. */
+    @Volatile
+    private var activeBootstrap: Process? = null
+
     fun dataDir(context: Context): File = ConfigWriter.mariaDataDir(context)
 
     /** True when the system tables have been bootstrapped already. */
@@ -59,6 +63,7 @@ object MariaDbController {
             pb.redirectErrorStream(true)
             pb.directory(TermuxRuntime.runtimeRoot(context))
             val proc = pb.start()
+            activeBootstrap = proc
             // Pump output while waiting so the pipe never fills up and the
             // process never blocks on a full stdout buffer.
             val output = StringBuilder()
@@ -89,7 +94,7 @@ object MariaDbController {
                 throw IllegalStateException("datadir bootstrap produced no system tables")
             }
             AppLog.i(TAG, "datadir bootstrap complete")
-        }
+        }.also { activeBootstrap = null }
     }
 
     /**
@@ -121,6 +126,10 @@ object MariaDbController {
     }
 
     fun stop(context: Context) {
+        // Also abort an in-flight datadir bootstrap: without this, tapping
+        // the switch off during the first start left "starting database..."
+        // on screen until the whole 120 s bootstrap timed out.
+        runCatching { activeBootstrap?.takeIf { it.isAlive }?.destroyForcibly() }
         ProcessController.stop(KEY, timeoutMs = 10000)
     }
 
@@ -134,6 +143,7 @@ object MariaDbController {
             val pb = ProcessBuilder(
                 listOf(
                     client.canonicalPath,
+                    "--protocol=socket",
                     "--socket=${File(TermuxRuntime.runDir(context), "mariadb.sock").canonicalPath}",
                     "-u", "root",
                     "-e", "ALTER USER 'root'@'localhost' IDENTIFIED BY ''; FLUSH PRIVILEGES;",

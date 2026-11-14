@@ -49,6 +49,10 @@ object AppLog {
     private val writerScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var logFile: File? = null
 
+    /** Wall clock of the last [clear]; queued disk writes older than this are dropped. */
+    @Volatile
+    private var clearedAt = 0L
+
     var accessLogEnabled: Boolean = true
 
     /** Wires disk persistence; called once from [NekoApp.onCreate]. */
@@ -85,6 +89,10 @@ object AppLog {
 
     private fun appendToDisk(file: File, entry: LogEntry) {
         runCatching {
+            // The entry may have been queued before a clear(); writing it
+            // after the delete would resurrect the log file and make the
+            // "clear logs" button look broken after an app restart.
+            if (entry.time <= clearedAt) return
             file.parentFile?.mkdirs()
             if (file.length() > 2 * 1024 * 1024) file.delete()
             file.appendText(entry.format() + "\n")
@@ -94,6 +102,7 @@ object AppLog {
     @Synchronized
     fun clear() {
         allEntries.clear()
+        clearedAt = System.currentTimeMillis()
         _flow.tryEmit(emptyList())
         runCatching { logFile?.delete() }
     }

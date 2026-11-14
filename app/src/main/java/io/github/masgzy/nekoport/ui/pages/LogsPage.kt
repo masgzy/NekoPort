@@ -1,6 +1,8 @@
 package io.github.masgzy.nekoport.ui.pages
 
 import android.widget.Toast
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -120,29 +122,7 @@ fun LogsPage(contentPadding: PaddingValues) {
             }
         } else {
             items(filtered, key = { it.time.toString() + it.tag + it.message }) { entry: LogEntry ->
-                Card {
-                    androidx.compose.foundation.layout.Column(
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                    ) {
-                        androidx.compose.foundation.layout.Row {
-                            Text(
-                                text = entry.level.name,
-                                color = colorScheme.primary,
-                                style = MiuixTheme.textStyles.subtitle,
-                            )
-                            Text(
-                                text = "  ${entry.tag}",
-                                color = colorScheme.onSurfaceVariantSummary,
-                                style = MiuixTheme.textStyles.subtitle,
-                            )
-                        }
-                        Text(
-                            text = entry.message,
-                            color = colorScheme.onSurface,
-                            style = MiuixTheme.textStyles.main,
-                        )
-                    }
-                }
+                LogEntryCard(entry = entry)
             }
         }
     }
@@ -159,5 +139,54 @@ fun LogsPage(contentPadding: PaddingValues) {
                 showClearDialog = false
             },
         )
+    }
+}
+
+/**
+ * One log entry as its own card. Long-pressing copies THIS single entry
+ * ("why can't I copy one line instead of everything"); the button above
+ * still copies the whole filtered list.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun LogEntryCard(entry: LogEntry) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val colorScheme = MiuixTheme.colorScheme
+    Card(
+        modifier = Modifier.combinedClickable(
+            onClick = {},
+            onLongClick = {
+                val timeFormat = java.text.SimpleDateFormat("MM-dd HH:mm:ss", java.util.Locale.US)
+                val text = "[${timeFormat.format(java.util.Date(entry.time))}] ${entry.level.name}/${entry.tag}: ${entry.message}"
+                runCatching {
+                    val cm = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as
+                        android.content.ClipboardManager
+                    cm.setPrimaryClip(android.content.ClipData.newPlainText("nekoport-log", text))
+                    Toast.makeText(context, context.getString(R.string.logs_copied), Toast.LENGTH_SHORT).show()
+                }
+            },
+        ),
+    ) {
+        androidx.compose.foundation.layout.Column(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+        ) {
+            androidx.compose.foundation.layout.Row {
+                Text(
+                    text = entry.level.name,
+                    color = colorScheme.primary,
+                    style = MiuixTheme.textStyles.subtitle,
+                )
+                Text(
+                    text = "  ${entry.tag}",
+                    color = colorScheme.onSurfaceVariantSummary,
+                    style = MiuixTheme.textStyles.subtitle,
+                )
+            }
+            Text(
+                text = entry.message,
+                color = colorScheme.onSurface,
+                style = MiuixTheme.textStyles.main,
+            )
+        }
     }
 }

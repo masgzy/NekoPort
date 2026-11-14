@@ -99,6 +99,15 @@ class ServerManager private constructor(private val context: Context) {
     private val ftpMutex = Mutex()
     private val mariaMutex = Mutex()
     private val configWriteMutex = Mutex()
+    private val repairMutex = Mutex()
+
+    /** Set once the runtime self-repair ran (successfully or not) this process. */
+    @Volatile
+    private var repairAttempted = false
+
+    /** Set while the user wants MariaDB stopped; aborts an in-flight start. */
+    @Volatile
+    private var mariaStopRequested = false
 
     private val scope = CoroutineScope(
         SupervisorJob() + Dispatchers.IO +
@@ -175,11 +184,45 @@ class ServerManager private constructor(private val context: Context) {
 
     // ---------- lifecycle ----------
 
+    /**
+     * Repairs corrupted/missing runtime binaries before any start attempt.
+     *
+     * alpha.3's path patcher destroyed every small ELF (httpd, nginx,
+     * lighttpd, pure-pw...), so devices that installed that build carry a
+     * runtime whose installed.json says "installed" but whose binaries the
+     * kernel refuses. Instead of telling users to reinstall by hand, every
+     * lifecycle entry point runs this once per process: it re-downloads and
+     * re-extracts exactly the broken packages from the configured mirror.
+     * Cheap when healthy: [TermuxRuntime.repairTargets] only reads a few
+     * file headers.
+     */
+    private suspend fun ensureRuntimeHealthy() = withContext(Dispatchers.IO) {
+        if (repairAttempted) return@withContext
+        repairMutex.withLock {
+            if (repairAttempted) return@withLock
+            repairAttempted = true
+            val targets = TermuxRuntime.repairTargets(context)
+            if (targets.isEmpty()) return@withLock
+            AppLog.w("Manager", "runtime binaries broken/missing ($targets); self-repairing from ${_config.value.settings.repoMirror}")
+            TermuxRuntime.install(
+                context,
+                _config.value.settings.repoMirror,
+                forcePackages = targets,
+            ) { }.onSuccess { versions ->
+                AppLog.i("Manager", "runtime self-repair done: ${versions.map { "${it.key.label} ${it.value}" }}")
+                refreshRuntimeStatus()
+            }.onFailure {
+                AppLog.e("Manager", "runtime self-repair failed: ${it.message}; use Settings to update components manually")
+            }
+        }
+    }
+
     fun startAllAsync() {
         scope.launch { runCatching { startAll() } }
     }
 
     suspend fun startAll() = startAllMutex.withLock {
+        ensureRuntimeHealthy()
         if (!TermuxRuntime.isInstalled(context)) {
             AppLog.e("Manager", "runtime not installed; install server components first")
             withContext(Dispatchers.IO) { refreshRuntimeStatus() }
@@ -220,6 +263,7 @@ class ServerManager private constructor(private val context: Context) {
     }
 
     private suspend fun startSiteInternal(site: SiteConfig) = withContext(Dispatchers.IO) {
+        ensureRuntimeHealthy()
         if (!TermuxRuntime.isInstalled(context)) {
             setSiteStatus(site.id, context.getString(R.string.site_status_no_runtime))
             return@withContext
@@ -341,6 +385,7 @@ class ServerManager private constructor(private val context: Context) {
     }
 
     private suspend fun startFtpInternal() = withContext(Dispatchers.IO) {
+        ensureRuntimeHealthy()
         if (!TermuxRuntime.isInstalled(context)) {
             _state.value = _state.value.copy(
                 ftpRunning = false,
@@ -493,6 +538,11 @@ class ServerManager private constructor(private val context: Context) {
     }
 
     fun stopMariaAsync() {
+        // Flag must be set BEFORE the coroutine queues up: startMaria holds
+        // mariaMutex for the whole bootstrap (up to 120 s) and stopMaria
+        // would otherwise only run after it - which left the switch showing
+        // "starting database..." long after the user tapped it off.
+        mariaStopRequested = true
         scope.launch { runCatching { stopMaria() } }
     }
 
@@ -501,6 +551,7 @@ class ServerManager private constructor(private val context: Context) {
     }
 
     private suspend fun startMariaInternal() = withContext(Dispatchers.IO) {
+        ensureRuntimeHealthy()
         if (!TermuxRuntime.isMariaDbInstalled(context)) {
             _state.value = _state.value.copy(
                 mariaRunning = false,
@@ -513,6 +564,7 @@ class ServerManager private constructor(private val context: Context) {
             publish()
             return@withContext
         }
+        mariaStopRequested = false
         _state.value = _state.value.copy(
             mariaRunning = false,
             mariaStatusText = context.getString(R.string.maria_status_initializing),
@@ -521,8 +573,15 @@ class ServerManager private constructor(private val context: Context) {
         try {
             if (!MariaDbController.isInitialized(context)) {
                 val result = MariaDbController.initialize(context)
-                if (result.isFailure) {
+                if (result.isFailure || mariaStopRequested) {
                     val failure = result.exceptionOrNull()
+                    // A stop requested during the bootstrap is not an error:
+                    // clear the status instead of showing a failure message.
+                    if (mariaStopRequested) {
+                        _state.value = _state.value.copy(mariaRunning = false, mariaStatusText = null)
+                        publish()
+                        return@withContext
+                    }
                     AppLog.e("Manager", "MariaDB init failed: ${failure?.message}")
                     _state.value = _state.value.copy(
                         mariaRunning = false,
@@ -532,26 +591,43 @@ class ServerManager private constructor(private val context: Context) {
                     return@withContext
                 }
             }
+            if (mariaStopRequested) {
+                _state.value = _state.value.copy(mariaRunning = false, mariaStatusText = null)
+                publish()
+                return@withContext
+            }
             _state.value = _state.value.copy(
                 mariaStatusText = context.getString(R.string.maria_status_starting),
             )
             val failure = MariaDbController.start(context, _config.value.maria)
             if (failure != null) {
-                _state.value = _state.value.copy(
-                    mariaStatusText = context.getString(R.string.site_status_port_failed, _config.value.maria.port) +
-                        if (failure.isBlank()) "" else "\n$failure",
-                )
+                if (!mariaStopRequested) {
+                    _state.value = _state.value.copy(
+                        mariaStatusText = context.getString(R.string.site_status_port_failed, _config.value.maria.port) +
+                            if (failure.isBlank()) "" else "\n$failure",
+                    )
+                }
             }
         } catch (e: Exception) {
             AppLog.e("Manager", "cannot start MariaDB on port ${_config.value.maria.port}: ${e.message}")
-            _state.value = _state.value.copy(mariaStatusText = e.message)
+            if (!mariaStopRequested) {
+                _state.value = _state.value.copy(mariaStatusText = e.message)
+            }
+        }
+        if (mariaStopRequested) {
+            // The user gave up while we were starting; leave no stale text.
+            _state.value = _state.value.copy(mariaRunning = false, mariaStatusText = null)
         }
         publish()
     }
 
     suspend fun stopMaria() = mariaMutex.withLock {
         withContext(Dispatchers.IO) {
+            mariaStopRequested = true
             MariaDbController.stop(context)
+            // Kill the "starting database..." label immediately; the start
+            // path checks [mariaStopRequested] and won't override it.
+            _state.value = _state.value.copy(mariaRunning = false, mariaStatusText = null)
             publish()
         }
     }

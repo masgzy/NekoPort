@@ -15,8 +15,8 @@ val envKeyPass: String? = System.getenv("KEY_PASSWORD")
 
 // Single source of truth for the release identity; the CI release job
 // verifies the pushed tag against baseVersionName.
-val baseVersionName = "0.1.0-alpha.3"
-val baseVersionCode = 6
+val baseVersionName = "0.1.0-alpha.4"
+val baseVersionCode = 7
 
 android {
     namespace = "io.github.masgzy.nekoport"

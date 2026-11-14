@@ -121,6 +121,67 @@ object TermuxRuntime {
         runCatching { stateFile(context).writeText(json.encodeToString(InstalledState.serializer(), state)) }
     }
 
+    /**
+     * Cheap sanity check that [file] is an executable we can actually exec:
+     * either a `#!` script or an ELF whose fixed header is intact.
+     *
+     * Older builds destroyed every small ELF under bin/ during path patching
+     * (see [patchBakedPaths]): the UTF-8 round-trip replaced every byte
+     * >= 0x80 with U+FFFD, which rewrote `e_machine` (0xB7 for aarch64) and
+     * shifted the whole file. The kernel then refused the binary with
+     * ENOEXEC and the shell fell back to interpreting the ELF as a script,
+     * printing `ELF...: inaccessible or not found` / `no closing quote`.
+     */
+    internal fun isExecutableValid(file: File): Boolean {
+        if (!file.isFile) return false
+        val head = ByteArray(6)
+        val n = runCatching { FileInputStream(file).use { it.read(head) } }.getOrDefault(-1)
+        if (n < 4) return false
+        return when {
+            head[0] == '#'.code.toByte() -> true                       // shell script
+            head[0] == 0x7f.toByte() && head[1] == 'E'.code.toByte() &&
+                head[2] == 'L'.code.toByte() && head[3] == 'F'.code.toByte() ->
+                // EI_CLASS must be 32/64-bit, EI_DATA little-endian; both
+                // were destroyed by the old UTF-8 round-trip too.
+                n >= 6 && (head[4] == 1.toByte() || head[4] == 2.toByte()) && head[5] == 1.toByte()
+            else -> false
+        }
+    }
+
+    /** Prefix-relative paths that must exist AND be valid for a usable runtime. */
+    private fun criticalFiles(): List<String> =
+        RuntimePackage.ALL.map { "bin/${it.binary}" } +
+            listOf("bin/pure-pw", "bin/mariadb-install-db", "bin/sh", "lib/libandroid-support.so", "lib/libc++_shared.so")
+
+    /**
+     * Package names owning critical files that are missing or corrupted.
+     * Empty set = runtime is healthy. Never spawns processes; just reads the
+     * first bytes of a handful of files, so callers may run it per start.
+     */
+    fun repairTargets(context: Context): Set<String> {
+        val state = readInstalledState(context).packages
+        if (state.isEmpty()) return emptySet()
+        val prefix = prefixDir(context)
+        val targets = HashSet<String>()
+        for ((name, entry) in state) {
+            for (rel in entry.files) {
+                if (rel in criticalFiles() && !isExecutableValid(File(prefix, rel))) {
+                    targets.add(name)
+                    break
+                }
+            }
+        }
+        // A critical file with no owning manifest means a half-written
+        // install; re-extract everything in that case.
+        for (rel in criticalFiles()) {
+            if (File(prefix, rel).exists()) continue
+            val owner = state.entries.firstOrNull { rel in it.value.files }?.key
+            if (owner == null) return state.keys
+            targets.add(owner)
+        }
+        return targets
+    }
+
     /** Detects the version of a bundled binary by running it with its version flag.
      *  The probe runs with the shared runtime environment: without
      *  LD_LIBRARY_PATH the Android linker rejects the ELF with
@@ -128,7 +189,7 @@ object TermuxRuntime {
      *  "clicking the version row does nothing". */
     fun detectVersion(context: Context, pkg: RuntimePackage): String? {
         val exe = File(prefixDir(context), "bin/${pkg.binary}")
-        if (!exe.exists()) return null
+        if (!isExecutableValid(exe)) return null
         return runCatching {
             exe.setExecutable(true, false)
             val pb = ProcessBuilder(exe.canonicalPath, pkg.versionArg)
@@ -177,17 +238,24 @@ object TermuxRuntime {
      * Full, untruncated `binary --version` output (may be multi-line), used
      * by the "version details" row. Returns null when the binary is absent
      * or the probe fails. Must be called off the main thread.
+     *
+     * Startup warnings the binary prints alongside its version banner
+     * (mariadbd logs "failed to retrieve the MAC address" on some devices)
+     * are filtered out so the dialog shows only the version.
      */
     fun rawVersionOutput(context: Context, pkg: RuntimePackage): String? {
         val exe = File(prefixDir(context), "bin/${pkg.binary}")
-        if (!exe.exists()) return null
+        if (!isExecutableValid(exe)) return null
         return runCatching {
             exe.setExecutable(true, false)
             val pb = ProcessBuilder(exe.canonicalPath, pkg.versionArg)
             pb.environment().putAll(ProcessController.environment(context))
             pb.redirectErrorStream(true)
             val proc = pb.start()
-            val text = proc.inputStream.bufferedReader().readText().trim()
+            val text = proc.inputStream.bufferedReader().readLines()
+                .filter { it.isNotBlank() && !it.contains("[Warning]") }
+                .joinToString("\n")
+                .trim()
             proc.waitFor()
             text.ifBlank { null }
         }.getOrNull()
@@ -211,27 +279,21 @@ object TermuxRuntime {
         data class Download(val name: String, val percent: Int) : Progress()
     }
 
-    /**
-     * Files that must exist for the runtime to be usable. A broken older
-     * install (crashed extraction, legacy layout, missing base package) used
-     * to stay broken forever because install() trusted installed.json; the
-     * health check below forces a repair in that case.
-     */
-    private fun criticalFiles(): List<String> =
-        RuntimePackage.ALL.map { "bin/${it.binary}" } +
-            listOf("bin/pure-pw", "bin/mariadb-install-db", "bin/sh", "lib/libandroid-support.so", "lib/libc++_shared.so")
-
     /** Installs every runtime package (and dependencies) that is missing.
      *  When [roots] is given, only the closure of those components is fetched
      *  (per-component install); the default installs/updates everything.
      *  [force] re-downloads and re-extracts packages that are already
      *  installed - this is how "update" works (Termux packages always carry
-     *  the newest upstream build, so re-extracting = updating). */
+     *  the newest upstream build, so re-extracting = updating).
+     *  [forcePackages] re-extracts exactly those package names without
+     *  touching the rest - this is how the self-repair fixes corrupted
+     *  binaries without re-downloading the whole closure. */
     suspend fun install(
         context: Context,
         mirror: String,
         roots: List<RuntimePackage>? = null,
         force: Boolean = false,
+        forcePackages: Set<String>? = null,
         onProgress: suspend (Progress) -> Unit,
     ): Result<Map<RuntimePackage, String>> = withContext(Dispatchers.IO) {
         try {
@@ -258,15 +320,19 @@ object TermuxRuntime {
             val closure = resolveDependencies(index, rootPackages)
             if (closure.isEmpty()) throw RepoException("runtime packages not found in index")
 
-            // Self-heal: if critical files are missing even though the state
-            // claims they are installed, re-extract everything instead of
-            // trusting the manifest (fixes installs broken by older builds).
-            val broken = criticalFiles().any { !File(prefix, it).exists() }
+            // Self-heal: if critical files are missing OR corrupted even
+            // though the state claims they are installed, re-extract
+            // everything instead of trusting the manifest (fixes installs
+            // broken by older builds - notably the ELF-corrupting path patch).
+            val broken = criticalFiles().any { !isExecutableValid(File(prefix, it)) }
             if (broken) {
-                AppLog.w(TAG, "runtime is incomplete (critical files missing); forcing full repair")
+                AppLog.w(TAG, "runtime is incomplete or corrupted (critical files invalid); forcing full repair")
             }
             val alreadyInstalled = readInstalledState(context).packages.keys
-            val missing = closure.filter { force || broken || it.name !in alreadyInstalled }
+            val missing = closure.filter {
+                force || broken || it.name !in alreadyInstalled ||
+                    (forcePackages != null && it.name in forcePackages)
+            }
             AppLog.i(TAG, "dependency closure: ${closure.joinToString { it.name }}")
             val total = missing.size
             val manifest = HashMap<String, List<String>>()
@@ -426,9 +492,17 @@ object TermuxRuntime {
     }
 
     /**
-     * Rewrites the hard-baked Termux prefix inside extracted shell scripts
-     * (e.g. mariadb-install-db) so they point at our relocated prefix. ELF
-     * binaries are left untouched: text decode simply fails for them.
+     * Rewrites the hard-baked Termux prefix inside extracted SHELL SCRIPTS
+     * (e.g. mariadb-install-db, apachectl, envvars) so they point at our
+     * relocated prefix.
+     *
+     * ELF binaries are NEVER touched here: this function used to decode
+     * every file as UTF-8 text and write it back, which replaced every byte
+     * >= 0x80 with U+FFFD - silently destroying the ELF header (e_machine
+     * 0xB7 lives in the fixed header) and shifting the whole file. That
+     * made httpd / nginx / lighttpd / pure-pw unexecable (ENOEXEC) while
+     * mariadbd (> 2 MB size guard) survived - hence "ELF: inaccessible or
+     * not found" / "no closing quote" on alpha.3.
      */
     private fun patchBakedPaths(context: Context) {
         val prefix = prefixDir(context)
@@ -438,10 +512,14 @@ object TermuxRuntime {
             val files = dir.listFiles() ?: continue
             for (file in files) {
                 if (file.length() == 0L || file.length() > 2 * 1024 * 1024) continue
-                val text = runCatching {
-                    if (!file.isFile) return@runCatching null
-                    file.readText()
-                }.getOrNull() ?: continue
+                // Only text scripts are patched. Scripts always start with
+                // '#' (shebang or comment); anything else (ELF, archives,
+                // linker version scripts that start with other bytes) is
+                // left byte-identical.
+                val first = ByteArray(1)
+                val read = runCatching { FileInputStream(file).use { it.read(first) } }.getOrDefault(-1)
+                if (read < 1 || first[0] != '#'.code.toByte()) continue
+                val text = runCatching { file.readText() }.getOrNull() ?: continue
                 if (!text.contains(TERMUX_BAKED_PREFIX)) continue
                 runCatching {
                     file.writeText(text.replace(TERMUX_BAKED_PREFIX, newPrefix))
