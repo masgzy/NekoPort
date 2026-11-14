@@ -66,6 +66,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.Scaffold as MiuixScaffold
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.icon.MiuixIcons
@@ -126,63 +127,71 @@ private fun OverlayScaffold(
     content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
 ) {
     val colorScheme = MiuixTheme.colorScheme
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(colorScheme.surface),
-    ) {
-        Column(
+    // The overlay screens live OUTSIDE the root miuix Scaffold (they must
+    // cover the top bar), so OverlayDialog / spinner popups inside them would
+    // look up LocalDialogStates / LocalPopupStates and get the detached
+    // defaults - silently rendering nowhere (the app-log level filter never
+    // opened, the clear confirmation never appeared, editor dialogs too).
+    // A nested miuix Scaffold provides the popup/dialog hosts for its subtree.
+    MiuixScaffold { _ ->
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                // The overlay draws over the scaffold (edge-to-edge), so it
-                // must handle the status bar itself or the title is hidden
-                // underneath it.
-                .padding(
-                    top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding(),
-                    bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
-                ),
+                .background(colorScheme.surface),
         ) {
-            Row(
+            Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
+                    .fillMaxSize()
+                    // The overlay draws over the scaffold (edge-to-edge), so it
+                    // must handle the status bar itself or the title is hidden
+                    // underneath it.
+                    .padding(
+                        top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding(),
+                        bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
+                    ),
             ) {
-                Box(
+                Row(
                     modifier = Modifier
-                        .clip(CircleShape)
-                        .clickable(onClick = onDismiss)
-                        .padding(10.dp),
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(
-                        imageVector = MiuixIcons.Close,
-                        contentDescription = stringResource(R.string.dialog_cancel),
-                        tint = colorScheme.onSurface,
-                    )
-                }
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(start = 4.dp),
-                ) {
-                    Text(
-                        text = title,
-                        style = MiuixTheme.textStyles.title2,
-                        color = colorScheme.onSurface,
-                        maxLines = 1,
-                    )
-                    if (subtitle != null) {
-                        Text(
-                            text = subtitle,
-                            style = MiuixTheme.textStyles.subtitle,
-                            color = colorScheme.onSurfaceVariantSummary,
-                            maxLines = 1,
+                    Box(
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .clickable(onClick = onDismiss)
+                            .padding(10.dp),
+                    ) {
+                        Icon(
+                            imageVector = MiuixIcons.Close,
+                            contentDescription = stringResource(R.string.dialog_cancel),
+                            tint = colorScheme.onSurface,
                         )
                     }
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(start = 4.dp),
+                    ) {
+                        Text(
+                            text = title,
+                            style = MiuixTheme.textStyles.title2,
+                            color = colorScheme.onSurface,
+                            maxLines = 1,
+                        )
+                        if (subtitle != null) {
+                            Text(
+                                text = subtitle,
+                                style = MiuixTheme.textStyles.subtitle,
+                                color = colorScheme.onSurfaceVariantSummary,
+                                maxLines = 1,
+                            )
+                        }
+                    }
+                    actions()
                 }
-                actions()
+                content()
             }
-            content()
         }
     }
 }

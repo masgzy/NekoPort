@@ -102,8 +102,18 @@ object ConfigWriter {
         Engine.LIGHTTPD -> writeLighttpdConf(context, site, docroot, localOnly)
     }
 
-    private fun indexList(site: SiteConfig) =
-        safeTokens(site.indexFiles).joinToString(", ") { "\"$it\"" }
+    /** nginx's `index` directive takes SPACE-separated file names; a comma is
+     *  a parse error ("unexpected ,") that killed every nginx site (the
+     *  lighttpd tuple syntax is the only place where commas are valid). */
+    private fun nginxIndexList(site: SiteConfig): String {
+        val tokens = safeTokens(site.indexFiles).ifEmpty { listOf("index.html") }
+        return tokens.joinToString(" ") { "\"$it\"" }
+    }
+
+    /** DirectoryIndex / index-file.names fall back to index.html when the
+     *  cleaned token list is empty, so the generated line stays valid. */
+    private fun indexTokens(site: SiteConfig): List<String> =
+        safeTokens(site.indexFiles).ifEmpty { listOf("index.html") }
 
     private fun phpExtensions(site: SiteConfig) =
         safeTokens(site.phpExtensions).joinToString("|") { Regex.escape(it) }
@@ -160,7 +170,7 @@ object ConfigWriter {
                 "        listen ${if (localOnly) "127.0.0.1:" else ""}${site.port};\n" +
                 "        server_name _;\n" +
                 "        root ${quoted(docroot)};\n" +
-                "        index ${indexList(site)};\n" +
+                "        index ${nginxIndexList(site)};\n" +
                 "        autoindex ${if (site.directoryListing) "on" else "off"};\n" +
                 "\n" +
                 "        # never serve dotfiles (.htaccess, .git, .env, ...)\n" +
@@ -239,7 +249,7 @@ object ConfigWriter {
                 "CustomLog ${quoted(siteAccessLog(context, site.id, Engine.APACHE))} combined\n" +
                 "\n" +
                 "TypesConfig ${quoted(File(File(prefix, "etc/apache2"), "mime.types"))}\n" +
-                "DirectoryIndex ${safeTokens(site.indexFiles).joinToString(" ")}\n" +
+                "DirectoryIndex ${indexTokens(site).joinToString(" ")}\n" +
                 "Timeout 300\n" +
                 "KeepAlive On\n" +
                 "KeepAliveTimeout 5\n" +
@@ -321,7 +331,7 @@ object ConfigWriter {
                 "server.pid-file = ${quoted(File(run, "lighttpd-${site.id}.pid"))}\n" +
                 "server.upload-dirs = ( ${quoted(TermuxRuntime.tmpDir(context))} )\n" +
                 "\n" +
-                "index-file.names = ( ${indexList(site)} )\n" +
+                "index-file.names = ( ${indexTokens(site).joinToString(", ") { "\"$it\"" }} )\n" +
                 "server.dir-listing = \"${if (site.directoryListing) "enable" else "disable"}\"\n" +
                 "\n" +
                 "mimetype.assign = (\n" +

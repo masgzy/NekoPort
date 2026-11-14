@@ -313,7 +313,16 @@ class ServerManager private constructor(private val context: Context) {
             when (site.engine) {
                 Engine.NGINX -> ProcessController.launch(
                     context, key, ProcessController.binary(context, "nginx"),
-                    listOf("-p", context.filesDir.canonicalPath + "/", "-c", conf.canonicalPath),
+                    // -e stderr: before the config is parsed nginx opens its
+                    // COMPILED-IN error log (the Termux build hardcodes
+                    // /data/data/com.termux/.../error.log, which this app can
+                    // never read) and emits an [alert] on every start. Route
+                    // the pre-config phase to stderr = the launch log.
+                    listOf(
+                        "-p", context.filesDir.canonicalPath + "/",
+                        "-e", "stderr",
+                        "-c", conf.canonicalPath,
+                    ),
                     launchLog, sitesRoot,
                 )
                 Engine.APACHE -> ProcessController.launch(
