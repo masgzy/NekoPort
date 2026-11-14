@@ -10,6 +10,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -62,7 +63,12 @@ fun FtpPanel() {
     var port by remember(ftp.port) { mutableStateOf(TextFieldValue(ftp.port.toString())) }
     var pasvStart by remember(ftp.passivePortStart) { mutableStateOf(TextFieldValue(ftp.passivePortStart.toString())) }
     // Extra accounts (editable copies); the primary account keeps the legacy fields.
-    var extraAccounts by remember(ftp.accounts) { mutableStateOf(ftp.accounts.map { it }) }
+    // Each draft carries a stable composition key: a plain positional list let
+    // a deleted middle account's editor state slide onto the next account, so
+    // editing then wrote account A's username/password into account B on save.
+    var accountDrafts by remember(ftp.accounts) {
+        mutableStateOf(ftp.accounts.map { AccountDraft(java.util.UUID.randomUUID().toString(), it) })
+    }
     var username by remember(ftp.username) { mutableStateOf(TextFieldValue(ftp.username)) }
     var password by remember(ftp.password) { mutableStateOf(TextFieldValue(ftp.password)) }
     var addresses by remember { mutableStateOf(listOf<String>()) }
@@ -187,21 +193,25 @@ fun FtpPanel() {
                 },
             )
             // Extra accounts.
-            extraAccounts.forEachIndexed { index, account ->
-                AccountEditor(
-                    account = account,
-                    onChange = { updated ->
-                        extraAccounts = extraAccounts.toMutableList().also { it[index] = updated }
-                    },
-                    onRemove = {
-                        extraAccounts = extraAccounts.toMutableList().also { it.removeAt(index) }
-                    },
-                )
+            accountDrafts.forEachIndexed { index, draft ->
+                key(draft.key) {
+                    AccountEditor(
+                        account = draft.account,
+                        onChange = { updated ->
+                            accountDrafts = accountDrafts
+                                .mapIndexed { i, d -> if (i == index) d.copy(account = updated) else d }
+                        },
+                        onRemove = {
+                            accountDrafts = accountDrafts.toMutableList().also { it.removeAt(index) }
+                        },
+                    )
+                }
             }
             NekoTextButton(
                 text = stringResource(R.string.ftp_add_account),
                 onClick = {
-                    extraAccounts = extraAccounts + FtpAccount(username = "", password = randomPassword())
+                    accountDrafts = accountDrafts +
+                        AccountDraft(java.util.UUID.randomUUID().toString(), FtpAccount(username = "", password = randomPassword()))
                 },
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
             )
@@ -254,13 +264,29 @@ fun FtpPanel() {
                         password = a.password,
                         root = a.root.trim(),
                     )
-                    val extras = extraAccounts.map { trimmedAccount(it) }
+                    val extras = accountDrafts.map { trimmedAccount(it.account) }
                     val primaryName = username.text.trim().ifEmpty { ftp.username }
                     val allNames = listOf(primaryName) + extras.map { it.username }
                     val validNames = allNames.all { FtpAccount.nameValid(it) }
                     val unique = allNames.size == allNames.distinct().size
                     if (!validNames || !unique) {
                         errorText = context.getString(R.string.ftp_account_invalid)
+                        return@NekoTextButton
+                    }
+                    // The passive range must fit into the port space; pure-ftpd
+                    // refuses to start when pasvStart+32 overflows 65535.
+                    if (pasvNum + 32 > 65535) {
+                        errorText = context.getString(R.string.ftp_pasv_invalid)
+                        return@NekoTextButton
+                    }
+                    // Global port dedup: FTP must not collide with the site
+                    // ports or the MariaDB port.
+                    if (config.sites.any { it.port == portNum } || config.maria.port == portNum) {
+                        errorText = context.getString(R.string.ftp_port_conflict, portNum)
+                        return@NekoTextButton
+                    }
+                    if (config.sites.any { it.port in pasvNum..(pasvNum + 32) } || config.maria.port in pasvNum..(pasvNum + 32)) {
+                        errorText = context.getString(R.string.ftp_pasv_conflict)
                         return@NekoTextButton
                     }
                     errorText = null
@@ -280,6 +306,9 @@ fun FtpPanel() {
         }
     }
 }
+
+/** Editable copy of an extra FTP account plus its stable composition key. */
+private data class AccountDraft(val key: String, val account: FtpAccount)
 
 @Composable
 private fun AccountEditor(

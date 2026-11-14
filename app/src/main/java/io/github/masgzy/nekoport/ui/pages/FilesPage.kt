@@ -17,6 +17,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -95,7 +96,14 @@ fun FilesPage(contentPadding: PaddingValues) {
             withContext(Dispatchers.IO) {
                 for (uri in uris) {
                     runCatching {
-                        val name = queryFileName(context, uri) ?: "upload-${System.currentTimeMillis()}"
+                        // Display names come from the source app and can carry
+                        // slashes or even ".."; flatten them to a plain name
+                        // so the upload can never escape the current directory.
+                        val rawName = queryFileName(context, uri)
+                            ?: "upload-${System.currentTimeMillis()}"
+                        val name = rawName.substringAfterLast('/').substringAfterLast('\\')
+                            .takeIf { it.isNotBlank() && it != "." && it != ".." }
+                            ?: "upload-${System.currentTimeMillis()}"
                         context.contentResolver.openInputStream(uri)?.use { input ->
                             File(currentDir, name).outputStream().use { input.copyTo(it) }
                         }
@@ -109,13 +117,19 @@ fun FilesPage(contentPadding: PaddingValues) {
         }
     }
 
-    val listing = remember(dirVersion, currentDir) {
-        currentDir.listFiles()?.sortedWith(
-            compareBy({ !it.isDirectory }, { it.name.lowercase() })
-        ) ?: emptyList()
+    // Directory listing used to be read synchronously inside remember {} -
+    // on the MAIN thread; large folders (e.g. /sdcard) froze the UI.
+    val listing by produceState<List<File>>(emptyList(), dirVersion, currentDir) {
+        value = withContext(Dispatchers.IO) {
+            currentDir.listFiles()?.sortedWith(
+                compareBy({ !it.isDirectory }, { it.name.lowercase() })
+            ) ?: emptyList()
+        }
     }
-    val parentDir = remember(dirVersion, currentDir) {
-        runCatching { currentDir.canonicalFile.parentFile }.getOrNull()
+    val parentDir by produceState<File?>(null, dirVersion, currentDir) {
+        value = withContext(Dispatchers.IO) {
+            runCatching { currentDir.canonicalFile.parentFile }.getOrNull()
+        }
     }
 
     LazyColumn(
@@ -195,13 +209,14 @@ fun FilesPage(contentPadding: PaddingValues) {
         }
 
         // Parent directory entry ("..") - browsing may leave the sites root.
-        if (parentDir != null && parentDir.canonicalPath != currentDir.canonicalFile.canonicalPath) {
+        val parent = parentDir
+        if (parent != null && parent.canonicalPath != currentDir.canonicalFile.canonicalPath) {
             item {
                 Card(
                     modifier = Modifier.pressFeedback(cornerRadius = 16.dp),
                     pressFeedbackType = PressFeedbackType.None,
                     onClick = {
-                        currentDir = parentDir
+                        currentDir = parent
                         dirVersion++
                     },
                 ) {
@@ -421,6 +436,7 @@ private fun FileActionDialog(
 
     if (showRename) {
         var newName by remember(file.name) { mutableStateOf(TextFieldValue(file.name)) }
+        var renameError by remember(file.name) { mutableStateOf(false) }
         OverlayDialog(
             show = true,
             title = stringResource(R.string.files_rename),
@@ -432,11 +448,18 @@ private fun FileActionDialog(
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 TextField(
                     value = newName,
-                    onValueChange = { newName = it },
+                    onValueChange = { newName = it; renameError = false },
                     label = stringResource(R.string.files_name),
                     useLabelAsPlaceholder = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
+                if (renameError) {
+                    Text(
+                        text = stringResource(R.string.files_name_exists),
+                        color = colorScheme.primary,
+                        style = MiuixTheme.textStyles.subtitle,
+                    )
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     NekoTextButton(
                         text = stringResource(R.string.dialog_cancel),
@@ -450,12 +473,23 @@ private fun FileActionDialog(
                         text = stringResource(R.string.dialog_ok),
                         onClick = {
                             val clean = newName.text.trim()
-                            if (clean.isNotEmpty() && !clean.contains('/') && !clean.contains('\\')) {
+                            if (clean.isNotEmpty() && clean != "." && clean != ".." &&
+                                !clean.contains('/') && !clean.contains('\\')
+                            ) {
                                 val target = File(file.parentFile, clean)
-                                if (file.renameTo(target)) onChanged()
+                                // Refuse to clobber an existing entry (the old
+                                // renameTo silently failed or overwrote).
+                                if (!target.exists() && file.renameTo(target)) {
+                                    renameError = false
+                                    onChanged()
+                                } else {
+                                    renameError = true
+                                }
                             }
-                            showRename = false
-                            onDismiss()
+                            if (!renameError) {
+                                showRename = false
+                                onDismiss()
+                            }
                         },
                         modifier = Modifier.weight(1f),
                     )

@@ -22,10 +22,14 @@
          the same model Termux uses to run binaries and touch /sdcard. -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+    <!-- Android 13+ maps the legacy read permission to the media group;
+         SiteStorage requests READ_MEDIA_IMAGES there, so it must be declared. -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
 
     <application
         android:name=".NekoApp"
         android:allowBackup="true"
+        android:fullBackupContent="@xml/backup_rules"
         android:label="@string/app_name"
         android:requestLegacyExternalStorage="true"
         android:supportsRtl="true"

@@ -100,9 +100,14 @@ class CronScheduler(
             }
             CronAction.KEEP_ALIVE -> {
                 val anyRunning = manager.state.value.running || manager.state.value.mariaRunning
-                if (!anyRunning) {
+                if (!anyRunning && !manager.userStoppedServices) {
                     AppLog.i(TAG, "task '${task.name}': services down, starting")
                     manager.startAll()
+                } else if (!anyRunning) {
+                    // The user turned the master switch off; a watchdog that
+                    // yanks everything back up within 15 s makes the switch
+                    // look broken. Stay quiet until the user starts again.
+                    AppLog.i(TAG, "task '${task.name}': services down but user stopped them; skipping")
                 }
             }
             CronAction.COMMAND -> {
@@ -136,14 +141,27 @@ class CronScheduler(
             pb.redirectErrorStream(true)
             pb.directory(TermuxRuntime.runtimeRoot(context))
             val proc = pb.start()
+            // Pump the whole output on a side thread: closing the stream after
+            // N lines (the old take(200)) SIGPIPE-killed verbose commands with
+            // rc=141 and left the "task failed" symptom unexplained.
             val out = StringBuilder()
-            proc.inputStream.use { stream ->
-                stream.bufferedReader().useLines { lines ->
-                    lines.take(200).forEach { out.appendLine(it) }
+            val pump = Thread {
+                runCatching {
+                    proc.inputStream.bufferedReader().forEachLine { line ->
+                        synchronized(out) { out.appendLine(line) }
+                    }
                 }
+            }.apply { isDaemon = true; start() }
+            val finished = proc.waitFor(120, java.util.concurrent.TimeUnit.SECONDS)
+            if (!finished) {
+                proc.destroyForcibly()
+                pump.join(1000)
+                synchronized(out) { out.appendLine("[nekoport] command timed out after 120 s") }
+                CommandResult(-1, synchronized(out) { out.toString().trim() })
+            } else {
+                pump.join(1000)
+                CommandResult(proc.exitValue(), synchronized(out) { out.toString().trim() })
             }
-            val rc = proc.waitFor()
-            CommandResult(rc, out.toString().trim())
         }.getOrElse { CommandResult(-1, it.message ?: "spawn failed") }
     }
 

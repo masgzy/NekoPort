@@ -167,10 +167,17 @@ private fun SiteCard(runtime: SiteRuntime, onEdit: () -> Unit) {
     fun openConf() {
         scope.launch(Dispatchers.IO) {
             val auto = ConfigWriter.writeEngineConf(context, site, docRoot)
+            // A pre-existing user config KEEPS overriding the generated one -
+            // after changing e.g. the port in the UI the site would still
+            // listen on the old port while the UI shows the new one. Warn in
+            // the editor title instead of letting that go unnoticed.
+            val preExisting = File(auto.parentFile, auto.name.removeSuffix(".auto")).exists()
             val file = ConfigWriter.ensureUserCopy(auto)
+            val appContext = context.applicationContext
             OverlayBus.openEditor(
                 EditorTarget(
-                    title = "${site.name} · ${site.engine.displayName}",
+                    title = "${site.name} · ${site.engine.displayName}" +
+                        if (preExisting) " · " + appContext.getString(R.string.site_conf_custom) else "",
                     file = file,
                     resetAction = { ConfigWriter.resetToAuto(auto) },
                 ),
@@ -475,6 +482,21 @@ private fun SiteEditorDialog(site: SiteConfig?, onDismiss: () -> Unit) {
                         }
                         if (config.sites.any { it.id != site?.id && it.port == portNum }) {
                             showError(R.string.site_port_conflict)
+                            return@NekoTextButton
+                        }
+                        // Global port dedup: a site must not collide with FTP,
+                        // MySQL or the FTP passive range either (previously
+                        // only site-vs-site was checked).
+                        if (portNum == config.ftp.port) {
+                            showError(R.string.site_port_conflict_ftp)
+                            return@NekoTextButton
+                        }
+                        if (portNum == config.maria.port) {
+                            showError(R.string.site_port_conflict_maria)
+                            return@NekoTextButton
+                        }
+                        if (portNum in config.ftp.passivePortStart..(config.ftp.passivePortStart + 32)) {
+                            showError(R.string.site_port_conflict_pasv)
                             return@NekoTextButton
                         }
                         val engine = Engine.entries[engineIndex.coerceIn(0, Engine.entries.lastIndex)]

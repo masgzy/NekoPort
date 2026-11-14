@@ -21,6 +21,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -46,7 +47,9 @@ import io.github.masgzy.nekoport.ui.NekoNav
 import io.github.masgzy.nekoport.ui.OverlayBus
 import io.github.masgzy.nekoport.ui.component.NekoSmallTitle
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
@@ -272,7 +275,15 @@ private fun DashboardSiteCard(runtime: SiteRuntime) {
     val scope = rememberCoroutineScope()
     val site = runtime.site
     val url = "http://localhost:${site.port}"
-    val lanIp = remember(runtime.site.id) { NetUtils.localAddresses().firstOrNull() }
+    // The LAN address changes when the phone roams between networks; the old
+    // remember(site.id) kept the stale IP forever (FTP already refreshes on a
+    // timer, the dashboard did not).
+    val lanIp by produceState<String?>(null, runtime.site.id) {
+        while (true) {
+            value = withContext(Dispatchers.IO) { NetUtils.localAddresses().firstOrNull() }
+            delay(4000)
+        }
+    }
     val docRoot = manager.siteDocRoot(site)
 
     fun openBrowser(target: String) {
@@ -290,10 +301,15 @@ private fun DashboardSiteCard(runtime: SiteRuntime) {
     fun openConf() {
         scope.launch(Dispatchers.IO) {
             val auto = ConfigWriter.writeEngineConf(context, site, docRoot)
+            // Same hint as the sites tab: a pre-existing user config keeps
+            // overriding the generated one even after UI-side changes.
+            val preExisting = File(auto.parentFile, auto.name.removeSuffix(".auto")).exists()
             val file = ConfigWriter.ensureUserCopy(auto)
+            val appContext = context.applicationContext
             OverlayBus.openEditor(
                 EditorTarget(
-                    title = "${site.name} · ${site.engine.displayName}",
+                    title = "${site.name} · ${site.engine.displayName}" +
+                        if (preExisting) " · " + appContext.getString(R.string.site_conf_custom) else "",
                     file = file,
                     resetAction = { ConfigWriter.resetToAuto(auto) },
                 ),

@@ -179,10 +179,16 @@ private fun TaskEditorDialog(task: CronTask?, onDismiss: () -> Unit) {
             nextRun = next?.let {
                 SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(it))
             }
-            error = null
+            // A parseable expression can still never fire (e.g. 30 2 31 2 *);
+            // "no next run" must be visible feedback, not silence.
+            if (next == null) {
+                error = context.getString(R.string.cron_expr_never_fires)
+            } else {
+                error = null
+            }
         } else {
             nextRun = null
-            error = ""
+            error = context.getString(R.string.cron_expr_invalid)
         }
     }
 
@@ -253,7 +259,7 @@ private fun TaskEditorDialog(task: CronTask?, onDismiss: () -> Unit) {
                 checked = logOutput,
                 onCheckedChange = { logOutput = it },
             )
-            if (error != null && error != "") {
+            if (error != null) {
                 Text(text = error!!, color = MiuixTheme.colorScheme.primary, style = MiuixTheme.textStyles.main)
             }
             Row(

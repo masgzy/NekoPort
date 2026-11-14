@@ -532,10 +532,12 @@ private fun CodeEditorScreen() {
         }
     }
 
-    // ---- back / X with unsaved active tab ----
-    LaunchedEffect(pendingClose, uiState.dirty) {
+    // ---- back / X with unsaved tabs ----
+    LaunchedEffect(pendingClose, uiState.dirty, dirtyByTab) {
         if (pendingClose) {
-            if (uiState.dirty) showUnsaved = true else OverlayBus.closeEditor()
+            // Any tab's unsaved edits count, not just the active one: the old
+            // uiState.dirty check silently dropped background tabs' changes.
+            if (uiState.dirty || dirtyByTab.any { it.value }) showUnsaved = true else OverlayBus.closeEditor()
         }
     }
 }
@@ -629,6 +631,12 @@ private fun EditorWebView(
     val context = LocalContext.current
     val surfaceArgb = colorScheme.surface.toArgb()
 
+    val webViewState = remember { mutableStateOf<WebView?>(null) }
+    // Latest theme/font values for onPageFinished (the factory closure would
+    // otherwise capture the values of the first composition forever).
+    val themeState = remember { mutableStateOf(dark to fontSize) }
+    themeState.value = dark to fontSize
+
     AndroidView(
         modifier = modifier,
         factory = { ctx ->
@@ -644,7 +652,8 @@ private fun EditorWebView(
                 setBackgroundColor(surfaceArgb)
                 webViewClient = object : WebViewClient() {
                     override fun onPageFinished(view: WebView?, url: String?) {
-                        editorBridge?.onPageReady(dark, fontSize)
+                        val (d, f) = themeState.value
+                        editorBridge?.onPageReady(d, f)
                     }
                 }
                 webChromeClient = WebChromeClient()
@@ -674,20 +683,29 @@ private fun EditorWebView(
                 addJavascriptInterface(bridge, "NekoEditor")
                 editorBridge = bridge
                 EditorBridge.webViewRef = this
+                webViewState.value = this
                 loadUrl("file:///android_asset/editor/index.html")
             }
         },
-        update = { webView ->
-            webView.evaluateJavascript("Editor.setDark($dark)", null)
-            webView.evaluateJavascript("Editor.setFontSize($fontSize)", null)
-        },
+        // Theme/font updates are pushed by LaunchedEffect below; re-injecting
+        // JS here ran on EVERY recomposition (each keystroke) and triggered a
+        // cm.refresh() per keystroke.
+        update = { },
     )
 
-    // Reset the singleton bridge when the editor overlay goes away.
+    LaunchedEffect(dark, fontSize) {
+        editorBridge?.eval("Editor.setDark($dark)")
+        editorBridge?.eval("Editor.setFontSize($fontSize)")
+    }
+
+    // Reset the singleton bridge and release the WebView when the editor
+    // overlay goes away (the WebView used to leak across editor sessions).
     DisposableEffect(Unit) {
         onDispose {
             editorBridge = null
             EditorBridge.webViewRef = null
+            webViewState.value?.destroy()
+            webViewState.value = null
         }
     }
 }

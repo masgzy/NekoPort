@@ -15,8 +15,8 @@ val envKeyPass: String? = System.getenv("KEY_PASSWORD")
 
 // Single source of truth for the release identity; the CI release job
 // verifies the pushed tag against baseVersionName.
-val baseVersionName = "0.1.0-alpha.4"
-val baseVersionCode = 7
+val baseVersionName = "0.1.0-alpha.5"
+val baseVersionCode = 8
 
 android {
     namespace = "io.github.masgzy.nekoport"
@@ -62,7 +62,22 @@ android {
             isMinifyEnabled = false
             isShrinkResources = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            signingConfig = signingConfigs.findByName("ci") ?: signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.findByName("ci") ?: run {
+                // A silent debug-signed "release" APK is easy to mistake for
+                // a real release build and distribute; fail loudly instead.
+                // (assembleDebug still works locally - only release tasks
+                // require the CI keystore environment.)
+                val wantsRelease = gradle.startParameter.taskNames.any {
+                    it.contains("release", ignoreCase = true) || it.contains("bundle", ignoreCase = true)
+                }
+                if (wantsRelease) {
+                    throw GradleException(
+                        "release build requires signing env vars: KEYSTORE_BASE64 / KEYSTORE_PASSWORD / KEY_ALIAS / KEY_PASSWORD " +
+                            "(use assembleDebug for local development)",
+                    )
+                }
+                signingConfigs.getByName("debug")
+            }
         }
     }
 
@@ -89,8 +104,10 @@ android {
 }
 
 // APK naming + versionCode scheme through the variant API (AGP 9 removed
-// applicationVariants): universal = base*10, ABI splits = base*10 + 1..4 so a
-// split APK can always upgrade an installed universal one.
+// applicationVariants): the universal APK gets the HIGHEST code (base*10 + 9)
+// so switching from any single-ABI split to the universal package is always
+// an upgrade (the reverse direction would be a downgrade and fail to install
+// without uninstalling); splits use base*10 + 1..4.
 androidComponents {
     onVariants { variant ->
         variant.outputs.forEach { output ->
@@ -110,7 +127,7 @@ androidComponents {
                 "arm64-v8a" -> 2
                 "x86" -> 3
                 "x86_64" -> 4
-                else -> 0
+                else -> 9 // universal: highest, so it upgrades any split
             }
             val outputImpl = output as com.android.build.api.variant.impl.VariantOutputImpl
             outputImpl.outputFileName.set("NekoPort-$baseVersionName-$label.apk")

@@ -68,9 +68,13 @@
     <string name="site_status_no_runtime">未安装服务器组件，请先点击「安装服务器组件」</string>
     <string name="site_edit">编辑站点</string>
     <string name="site_edit_conf">配置文件</string>
+    <string name="site_conf_custom">自定义配置 · 优先生效</string>
     <string name="site_open_log">日志文件</string>
     <string name="site_confirm">保存</string>
     <string name="site_port_conflict">端口已被其他站点占用</string>
+    <string name="site_port_conflict_ftp">端口已被 FTP 占用</string>
+    <string name="site_port_conflict_maria">端口已被 MySQL 占用</string>
+    <string name="site_port_conflict_pasv">端口落在 FTP 被动端口段内</string>
     <string name="site_invalid_name">站点名称只能包含字母、数字、下划线和连字符</string>
     <string name="site_invalid_port">端口需在 1024-65535 之间</string>
 
@@ -87,6 +91,7 @@
     <string name="runtime_missing">尚未安装。组件为 lighttpd / nginx / Apache / PHP / MariaDB (MySQL) / Pure-FTPd，来自 Termux 软件源，安装后即可使用</string>
     <string name="runtime_install">安装服务器组件</string>
     <string name="runtime_installing">正在安装服务器组件…</string>
+    <string name="runtime_uninstalling">正在卸载服务器组件…</string>
     <string name="runtime_reinstall">重新安装 / 更新组件</string>
     <string name="runtime_uninstall">卸载组件</string>
     <string name="runtime_uninstall_confirm">卸载后所有服务将停止且无法启动，直到重新安装。确定卸载？</string>
@@ -158,6 +163,7 @@
     <string name="cron_check_expr">检查表达式</string>
     <string name="cron_next_run">下次执行：%1$s</string>
     <string name="cron_expr_invalid">表达式无效，请检查格式</string>
+    <string name="cron_expr_never_fires">表达式合法但按此规则永不触发（例如 2 月 31 日），任务不会运行</string>
     <string name="cron_name_invalid">任务名称不能为空</string>
     <string name="cron_command_empty">请填写要执行的命令</string>
     <string name="cron_command">控制台命令</string>
@@ -192,6 +198,9 @@
     <string name="ftp_port">FTP 端口</string>
     <string name="ftp_pasv_start">被动模式起始端口</string>
     <string name="ftp_pasv_hint">被动模式使用端口 %1$d 起连续 32 个端口，客户端需支持被动模式</string>
+    <string name="ftp_pasv_invalid">被动端口段超出 65535（%1$d + 32），请调低起始端口</string>
+    <string name="ftp_port_conflict">端口 %1$d 已被站点或 MySQL 占用</string>
+    <string name="ftp_pasv_conflict">被动端口段与站点或 MySQL 端口冲突</string>
     <string name="ftp_save">保存并应用</string>
 
     <!-- Files -->
@@ -206,6 +215,7 @@
     <string name="files_upload">上传文件</string>
     <string name="files_name">名称</string>
     <string name="files_rename">重命名</string>
+    <string name="files_name_exists">该名称已存在，请换一个</string>
     <string name="files_delete">删除</string>
     <string name="files_share">分享 / 下载</string>
     <string name="files_edit">编辑</string>

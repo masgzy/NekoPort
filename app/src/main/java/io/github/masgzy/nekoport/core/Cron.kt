@@ -61,13 +61,49 @@ object CronParser {
         cal.timeInMillis = after
         cal.set(Calendar.SECOND, 0)
         cal.set(Calendar.MILLISECOND, 0)
-        // Walk minute by minute; standard cron semantics cap at ~4 years.
-        val deadline = after + 366L * 24 * 60 * 60 * 1000
-        while (cal.timeInMillis <= deadline) {
-            cal.add(Calendar.MINUTE, 1)
-            if (matches(schedule, cal)) return cal.timeInMillis
+        // Strictly after `after`: advance to the next minute first (a result
+        // at or before `after` would make the scheduler fire twice per minute).
+        cal.add(Calendar.MINUTE, 1)
+        // Walk day by day (fast: never-firing expressions used to burn a whole
+        // year of minutes here, freezing the editor's "check" button), then
+        // pick the earliest matching minute inside each candidate day.
+        var daysChecked = 0
+        val maxDays = 366 * 4 + 2 // ~4 years covers all Feb-29 combos
+        while (daysChecked <= maxDays) {
+            if (dayMatches(schedule, cal)) {
+                val curHour = cal.get(Calendar.HOUR_OF_DAY)
+                val curMinute = cal.get(Calendar.MINUTE)
+                for (h in schedule.hours.sorted()) {
+                    if (h < curHour) continue
+                    for (m in schedule.minutes.sorted()) {
+                        if (h == curHour && m < curMinute) continue
+                        val hit = cal.clone() as Calendar
+                        hit.set(Calendar.HOUR_OF_DAY, h)
+                        hit.set(Calendar.MINUTE, m)
+                        return hit.timeInMillis
+                    }
+                }
+            }
+            cal.add(Calendar.DAY_OF_MONTH, 1)
+            cal.set(Calendar.HOUR_OF_DAY, 0)
+            cal.set(Calendar.MINUTE, 0)
+            daysChecked++
         }
         return null
+    }
+
+    /** Day-level gate: month + the dom/dow vixie-cron OR rule. */
+    private fun dayMatches(s: Schedule, cal: Calendar): Boolean {
+        val month = cal.get(Calendar.MONTH) + 1
+        if (month !in s.months) return false
+        val domOk = cal.get(Calendar.DAY_OF_MONTH) in s.daysOfMonth
+        val dowOk = (cal.get(Calendar.DAY_OF_WEEK) - 1) in s.daysOfWeek
+        return when {
+            s.domWildcard && s.dowWildcard -> true
+            s.domWildcard -> dowOk
+            s.dowWildcard -> domOk
+            else -> domOk || dowOk
+        }
     }
 
     /** True when the schedule fires at the wall-clock minute containing [atMillis]. */
@@ -117,8 +153,10 @@ object CronParser {
                     (resolveValue(pieces[1], min, max, names) ?: return null)
             } else {
                 val v = resolveValue(rangePart, min, max, names) ?: return null
-                // A single value with a step still means "start at v, step to max".
-                v to v
+                // A single value with a step means "start at v, step to max"
+                // (vixie-cron semantics): "0/30" fires at :00 and :30, not
+                // only at :00. Previously this produced just {v}.
+                v to max
             }
             var v = resolved.first
             if (resolved.first > resolved.second) return null

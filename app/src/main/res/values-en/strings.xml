@@ -68,9 +68,13 @@
     <string name="site_status_no_runtime">Server components not installed - tap \"Install server components\" first</string>
     <string name="site_edit">Edit site</string>
     <string name="site_edit_conf">Config file</string>
+    <string name="site_conf_custom">custom config · takes precedence</string>
     <string name="site_open_log">Log file</string>
     <string name="site_confirm">Save</string>
     <string name="site_port_conflict">Port already used by another site</string>
+    <string name="site_port_conflict_ftp">Port already used by FTP</string>
+    <string name="site_port_conflict_maria">Port already used by MySQL</string>
+    <string name="site_port_conflict_pasv">Port falls inside the FTP passive range</string>
     <string name="site_invalid_name">Site name may only contain letters, digits, underscores and hyphens</string>
     <string name="site_invalid_port">Port must be within 1024-65535</string>
 
@@ -87,6 +91,7 @@
     <string name="runtime_missing">Not installed yet. Components are lighttpd / nginx / Apache / PHP / MariaDB (MySQL) / Pure-FTPd from the Termux repository</string>
     <string name="runtime_install">Install server components</string>
     <string name="runtime_installing">Installing server components…</string>
+    <string name="runtime_uninstalling">Uninstalling server components…</string>
     <string name="runtime_reinstall">Reinstall / update components</string>
     <string name="runtime_uninstall">Uninstall components</string>
     <string name="runtime_uninstall_confirm">All services will stop and cannot start until you reinstall. Uninstall now?</string>
@@ -158,6 +163,7 @@
     <string name="cron_check_expr">Check expression</string>
     <string name="cron_next_run">Next run: %1$s</string>
     <string name="cron_expr_invalid">Invalid expression - check the format</string>
+    <string name="cron_expr_never_fires">The expression is valid but never fires (e.g. Feb 31); the task will not run</string>
     <string name="cron_name_invalid">Task name cannot be empty</string>
     <string name="cron_command_empty">Enter the command to run</string>
     <string name="cron_command">Console command</string>
@@ -192,6 +198,9 @@
     <string name="ftp_port">FTP port</string>
     <string name="ftp_pasv_start">Passive port start</string>
     <string name="ftp_pasv_hint">Passive mode uses 32 consecutive ports starting at %1$d; clients must use passive mode</string>
+    <string name="ftp_pasv_invalid">Passive range overflows 65535 (%1$d + 32); lower the start port</string>
+    <string name="ftp_port_conflict">Port %1$d is already used by a site or MySQL</string>
+    <string name="ftp_pasv_conflict">The passive range overlaps a site or MySQL port</string>
     <string name="ftp_save">Save and apply</string>
 
     <!-- Files -->
@@ -206,6 +215,7 @@
     <string name="files_upload">Upload files</string>
     <string name="files_name">Name</string>
     <string name="files_rename">Rename</string>
+    <string name="files_name_exists">That name already exists - pick another</string>
     <string name="files_delete">Delete</string>
     <string name="files_share">Share / download</string>
     <string name="files_edit">Edit</string>

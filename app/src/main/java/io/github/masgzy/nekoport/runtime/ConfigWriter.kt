@@ -83,6 +83,18 @@ object ConfigWriter {
 
     private fun quoted(path: File) = "\"" + path.canonicalPath + "\""
 
+    /**
+     * Config tokens (index file names, PHP extensions, deny-dir names) are
+     * user-typed and get spliced into nginx/Apache/lighttpd/php-fpm config
+     * text. Anything outside [A-Za-z0-9._-] can smuggle quotes/backslashes
+     * into the generated file and break the server at parse time with an
+     * unreadable error - filter strictly instead.
+     */
+    private fun safeTokens(raw: List<String>): List<String> =
+        raw.map { it.filter { c -> c.isLetterOrDigit() || c in "._-" } }
+            .filter { it.isNotEmpty() }
+            .distinct()
+
     /** Regenerates the `.auto` config of [site]'s engine (used before editing). */
     fun writeEngineConf(context: Context, site: SiteConfig, docroot: File): File = when (site.engine) {
         Engine.NGINX -> writeNginxConf(context, site, docroot)
@@ -90,9 +102,11 @@ object ConfigWriter {
         Engine.LIGHTTPD -> writeLighttpdConf(context, site, docroot)
     }
 
-    private fun indexList(site: SiteConfig) = site.indexFiles.map { "\"$it\"" }.joinToString(", ")
+    private fun indexList(site: SiteConfig) =
+        safeTokens(site.indexFiles).joinToString(", ") { "\"$it\"" }
 
-    private fun phpExtensions(site: SiteConfig) = site.phpExtensions.joinToString("|") { Regex.escape(it) }
+    private fun phpExtensions(site: SiteConfig) =
+        safeTokens(site.phpExtensions).joinToString("|") { Regex.escape(it) }
 
     // ------------------------------------------------------------------
     // nginx
@@ -115,7 +129,7 @@ object ConfigWriter {
         } else ""
 
         // PHP execution is refused inside upload directories (webshell protection).
-        val denyDirs = site.phpDenyDirs.map { Regex.escape(it) }.joinToString("|")
+        val denyDirs = safeTokens(site.phpDenyDirs).joinToString("|") { Regex.escape(it) }
         val denyBlock = if (denyDirs.isNotEmpty()) {
             "\n" +
                 "        # PHP execution refused in upload directories\n" +
@@ -194,10 +208,13 @@ object ConfigWriter {
         } else ""
 
         // PHP execution is refused inside upload directories (webshell protection).
-        val denyDirs = site.phpDenyDirs.map { Regex.escape(it) }.joinToString("|")
+        val denyDirs = safeTokens(site.phpDenyDirs).joinToString("|") { Regex.escape(it) }
+        // DirectoryMatch is a REGEX: a docroot like /sdcard/www.test.com would
+        // widen the match ("." = any char) and a path with ( or + made the
+        // whole config illegal. \Q...\E (PCRE) quotes the docroot literally.
         val denyBlock = if (denyDirs.isNotEmpty() && site.enablePhp) {
             "\n" +
-                "<DirectoryMatch \"^${docroot.canonicalPath}/(?:$denyDirs)(?:/|\$)\">\n" +
+                "<DirectoryMatch \"^${Regex.escape(docroot.canonicalPath)}/(?:$denyDirs)(?:/|\$)\">\n" +
                 "    <FilesMatch \"\\.(?:${ext})\$\">\n" +
                 "        Require all denied\n" +
                 "    </FilesMatch>\n" +
@@ -219,7 +236,7 @@ object ConfigWriter {
                 "CustomLog ${quoted(siteAccessLog(context, site.id, Engine.APACHE))} combined\n" +
                 "\n" +
                 "TypesConfig ${quoted(File(File(prefix, "etc/apache2"), "mime.types"))}\n" +
-                "DirectoryIndex ${site.indexFiles.joinToString(" ")}\n" +
+                "DirectoryIndex ${safeTokens(site.indexFiles).joinToString(" ")}\n" +
                 "Timeout 300\n" +
                 "KeepAlive On\n" +
                 "KeepAliveTimeout 5\n" +
@@ -271,14 +288,14 @@ object ConfigWriter {
         val sock = siteSocket(context, site.id)
         val ext = phpExtensions(site)
         val php = if (site.enablePhp) {
-            val hosts = site.phpExtensions.joinToString(",\n") { extName ->
+            val hosts = safeTokens(site.phpExtensions).joinToString(",\n") { extName ->
                 "    \".${Regex.escape(extName)}\" => ((\"socket\" => \"${sock.canonicalPath}\"))"
             }
             "\nfastcgi.server = (\n$hosts\n)\n"
         } else ""
 
         // PHP execution is refused inside upload directories (webshell protection).
-        val denyDirs = site.phpDenyDirs.map { Regex.escape(it) }.joinToString("|")
+        val denyDirs = safeTokens(site.phpDenyDirs).joinToString("|") { Regex.escape(it) }
         val denyBlock = if (denyDirs.isNotEmpty() && site.enablePhp) {
             """
             |${'$'}HTTP["url"] =~ "^/(?:$denyDirs)(?:/|${'$'})" {
@@ -393,7 +410,7 @@ object ConfigWriter {
             sb.appendLine("catch_workers_output = yes")
             // pool-level directive: FastCGI requests for other extensions are
             // refused outright (core php2shell mitigation)
-            sb.appendLine("security.limit_extensions = ${site.phpExtensions.joinToString(" ") { ".$it" }}")
+            sb.appendLine("security.limit_extensions = ${safeTokens(site.phpExtensions).joinToString(" ") { ".$it" }}")
             sb.appendLine("php_admin_value[doc_root] = ${docroot.canonicalPath}")
             sb.appendLine("php_admin_value[open_basedir] = ${docroot.canonicalPath}:${siteTmp.canonicalPath}")
             sb.appendLine("php_admin_value[upload_tmp_dir] = ${siteTmp.canonicalPath}")

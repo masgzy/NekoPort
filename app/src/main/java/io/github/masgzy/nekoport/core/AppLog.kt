@@ -38,7 +38,6 @@ data class LogEntry(
 object AppLog {
 
     private const val MAX_ENTRIES = 2000
-    private val entries = ArrayDeque<LogEntry>(MAX_ENTRIES)
     private val allEntries = ArrayList<LogEntry>(MAX_ENTRIES)
     private val _flow = MutableSharedFlow<List<LogEntry>>(
         replay = 1,

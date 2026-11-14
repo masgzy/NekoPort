@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Auto-backup exclusions. config.json holds every FTP account password in
+  plain text and runtime/ holds the server binaries plus database files -
+  neither belongs in cloud backups / device-to-device migrations.
+-->
+<full-backup-content>
+    <exclude domain="file" path="config.json" />
+    <exclude domain="file" path="runtime" />
+    <exclude domain="file" path="sites" />
+</full-backup-content>

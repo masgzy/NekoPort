@@ -7,20 +7,14 @@ import kotlinx.serialization.Serializable
  * servers). Each site picks one engine and listens on its own port.
  *
  * Order follows the classic KSWEB habit: Lighttpd first.
+ * kotlinx.serialization decodes this enum by NAME from config.json, so the
+ * enum constants are a stable config format - do not rename them.
  */
 enum class Engine(val id: String, val displayName: String) {
     LIGHTTPD("lighttpd", "Lighttpd"),
     NGINX("nginx", "Nginx"),
     APACHE("apache", "Apache"),
     ;
-
-    companion object {
-        fun byId(raw: String?): Engine =
-            entries.firstOrNull { it.id == raw }
-                ?: LIGHTTPD.also {
-                    if (raw != null) AppLog.w("Config", "unknown engine '$raw', falling back to lighttpd")
-                }
-    }
 }
 
 /**
@@ -134,14 +128,6 @@ enum class CronAction(val id: String) {
     /** Start all enabled services if nothing is running. */
     KEEP_ALIVE("keepalive"),
     ;
-
-    companion object {
-        fun byId(raw: String?): CronAction =
-            entries.firstOrNull { it.id == raw }
-                ?: COMMAND.also {
-                    if (raw != null) AppLog.w("Config", "unknown cron action '$raw', falling back to command")
-                }
-    }
 }
 
 @Serializable

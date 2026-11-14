@@ -39,10 +39,17 @@ object SiteStorage {
     /**
      * Requests the storage permission and returns whether it was granted.
      * Must be called from the main thread (it shows the system dialog).
+     * Hard timeout: the launcher key survives process recreation poorly, and
+     * a dialog the user never answers used to hang the calling coroutine
+     * (and its UI progress state) forever.
      */
     suspend fun ensureStoragePermission(context: Context): Boolean {
         if (hasStoragePermission(context)) return true
-        return requestPermission(context, permission())
+        return try {
+            kotlinx.coroutines.withTimeout(60_000) { requestPermission(context, permission()) }
+        } catch (_: kotlinx.coroutines.TimeoutCancellationException) {
+            false
+        }
     }
 
     private suspend fun requestPermission(context: Context, permission: String): Boolean =

@@ -40,8 +40,10 @@ class ServerService : Service() {
             ACTION_STOP -> {
                 // Stop everything off the main thread: stopAll waits up to
                 // several seconds per process (SIGTERM grace period).
+                // userInitiated = the cron KEEP_ALIVE watchdog must not
+                // restart everything a few seconds after this.
                 scope.launch {
-                    runCatching { manager.stopAll() }
+                    runCatching { manager.stopAll(userInitiated = true) }
                     stopForeground(STOP_FOREGROUND_REMOVE)
                     stopSelf()
                 }

@@ -197,7 +197,12 @@ object TermuxRuntime {
             pb.redirectErrorStream(true)
             val proc = pb.start()
             val text = proc.inputStream.bufferedReader().readText()
-            proc.waitFor()
+            // A corrupted binary can hang the version probe; without a
+            // timeout the UI version row spun forever.
+            if (!proc.waitFor(5, java.util.concurrent.TimeUnit.SECONDS)) {
+                proc.destroyForcibly()
+                return@runCatching null
+            }
             Regex("""([0-9]+\.[0-9]+\.[0-9]+[0-9a-zA-Z.\-]*)""").find(text)?.groupValues?.get(1)
         }.getOrNull()
     }
@@ -256,7 +261,10 @@ object TermuxRuntime {
                 .filter { it.isNotBlank() && !it.contains("[Warning]") }
                 .joinToString("\n")
                 .trim()
-            proc.waitFor()
+            if (!proc.waitFor(5, java.util.concurrent.TimeUnit.SECONDS)) {
+                proc.destroyForcibly()
+                return@runCatching null
+            }
             text.ifBlank { null }
         }.getOrNull()
     }
@@ -376,11 +384,20 @@ object TermuxRuntime {
     }
 
     fun uninstall(context: Context): Boolean {
-        val ok = prefixDir(context).deleteRecursively()
+        // Delete the whole runtime tree (prefix, etc, logs, run, tmp, home)
+        // except the MariaDB data directory: the uninstall dialog promises
+        // data retention, and databases can hold hundreds of MB of user
+        // content. installed.json goes away with the rest, so the next
+        // install starts from a clean manifest.
+        val root = runtimeRoot(context)
+        val keep = File(root, "mariadb").canonicalFile
+        root.listFiles()?.forEach { child ->
+            if (child.canonicalFile == keep) return@forEach
+            child.deleteRecursively()
+        }
         stateFile(context).delete()
-        etcDir(context).deleteRecursively()
-        AppLog.i(TAG, "runtime uninstalled")
-        return ok
+        AppLog.i(TAG, "runtime uninstalled (MariaDB data directory kept)")
+        return true
     }
 
     /** Processes whose lifecycle belongs to [pkg]. */
@@ -496,17 +513,23 @@ object TermuxRuntime {
      * (e.g. mariadb-install-db, apachectl, envvars) so they point at our
      * relocated prefix.
      *
-     * ELF binaries are NEVER touched here: this function used to decode
-     * every file as UTF-8 text and write it back, which replaced every byte
+     * ELF binaries are NEVER touched here: an earlier implementation decoded
+     * every file as UTF-8 text and wrote it back, which replaced every byte
      * >= 0x80 with U+FFFD - silently destroying the ELF header (e_machine
      * 0xB7 lives in the fixed header) and shifting the whole file. That
      * made httpd / nginx / lighttpd / pure-pw unexecable (ENOEXEC) while
      * mariadbd (> 2 MB size guard) survived - hence "ELF: inaccessible or
      * not found" / "no closing quote" on alpha.3.
+     *
+     * Even for scripts the replacement is BYTE-level: readText() still maps
+     * every non-UTF-8 byte in a script to U+FFFD, so the UTF-8 round-trip
+     * residue of the same bug would survive. Only the ASCII prefix bytes are
+     * spliced here; everything else stays byte-identical.
      */
     private fun patchBakedPaths(context: Context) {
         val prefix = prefixDir(context)
-        val newPrefix = prefix.canonicalPath
+        val newPrefixBytes = prefix.canonicalPath.toByteArray(Charsets.US_ASCII)
+        val oldPrefixBytes = TERMUX_BAKED_PREFIX.toByteArray(Charsets.US_ASCII)
         val dirs = listOf(File(prefix, "bin"), File(prefix, "sbin"), File(prefix, "libexec/apache2"))
         for (dir in dirs) {
             val files = dir.listFiles() ?: continue
@@ -519,14 +542,40 @@ object TermuxRuntime {
                 val first = ByteArray(1)
                 val read = runCatching { FileInputStream(file).use { it.read(first) } }.getOrDefault(-1)
                 if (read < 1 || first[0] != '#'.code.toByte()) continue
-                val text = runCatching { file.readText() }.getOrNull() ?: continue
-                if (!text.contains(TERMUX_BAKED_PREFIX)) continue
+                val data = runCatching { file.readBytes() }.getOrNull() ?: continue
+                if (!data.indexOf(oldPrefixBytes).let { it >= 0 }) continue
                 runCatching {
-                    file.writeText(text.replace(TERMUX_BAKED_PREFIX, newPrefix))
+                    file.writeBytes(replaceAllBytes(data, oldPrefixBytes, newPrefixBytes))
                     AppLog.i(TAG, "patched baked termux prefix in ${file.name}")
                 }
             }
         }
+    }
+
+    private fun ByteArray.indexOf(pattern: ByteArray, from: Int = 0): Int {
+        if (pattern.isEmpty()) return -1
+        for (i in from..size - pattern.size) {
+            var j = 0
+            while (j < pattern.size && this[i + j] == pattern[j]) j++
+            if (j == pattern.size) return i
+        }
+        return -1
+    }
+
+    private fun replaceAllBytes(data: ByteArray, from: ByteArray, to: ByteArray): ByteArray {
+        val out = java.io.ByteArrayOutputStream(data.size + 64)
+        var pos = 0
+        while (true) {
+            val hit = data.indexOf(from, pos)
+            if (hit < 0) {
+                out.write(data, pos, data.size - pos)
+                break
+            }
+            out.write(data, pos, hit - pos)
+            out.write(to)
+            pos = hit + from.size
+        }
+        return out.toByteArray()
     }
 
     private fun termuxArch(): String? = when (Build.SUPPORTED_ABIS.firstOrNull()) {
@@ -612,9 +661,15 @@ object TermuxRuntime {
             val pkg = index[name] ?: continue
             result[name] = pkg
             for (dep in pkg.depends) {
-                val depName = dep.substringBefore('(').substringBefore('|').trim()
-                if (depName.isEmpty() || !seen.add(depName)) continue
-                queue.add(depName)
+                // Dependencies may carry alternatives: "libandroid-execinfo |
+                // libexecinfo". Take the first candidate that actually exists
+                // in the index - the old substringBefore('|') silently dropped
+                // the whole dependency when the first alternative was absent,
+                // leaving a missing-library symptom at launch time.
+                val candidates = dep.substringBefore('(').split('|').map { it.trim() }.filter { it.isNotEmpty() }
+                val chosen = candidates.firstOrNull { it in index } ?: candidates.firstOrNull()
+                if (chosen == null || chosen.isEmpty() || !seen.add(chosen)) continue
+                queue.add(chosen)
             }
         }
         return result.values.toList()
@@ -685,7 +740,12 @@ object TermuxRuntime {
                                     target.parentFile?.mkdirs()
                                     runCatching {
                                         target.delete()
-                                        val linkTarget = File(target.parentFile, entry.linkName)
+                                        // Link targets may be absolute or carry
+                                        // the baked Termux prefix; both would
+                                        // point at a non-existent path after
+                                        // relocation. Strip the prefix and pin
+                                        // absolute targets to the new prefix.
+                                        val linkTarget = relocateLinkTarget(entry.linkName, dest, target.parentFile)
                                         java.nio.file.Files.createSymbolicLink(
                                             target.toPath(),
                                             linkTarget.toPath(),
@@ -696,10 +756,12 @@ object TermuxRuntime {
                                 }
                                 entry.isLink -> {
                                     // Hard link: copy the already-extracted target.
-                                    val source = File(dest, entry.linkName.trimStart('/'))
+                                    val source = relocateLinkTarget(entry.linkName, dest, target.parentFile)
                                     if (source.exists()) {
                                         target.parentFile?.mkdirs()
                                         source.copyTo(target, overwrite = true)
+                                    } else {
+                                        AppLog.w(TAG, "hard link source missing for ${entry.name}: ${entry.linkName}")
                                     }
                                 }
                                 else -> {
@@ -718,5 +780,25 @@ object TermuxRuntime {
             }
         }
         throw RepoException("no data.tar payload in ${deb.name}")
+    }
+
+    /**
+     * Resolves a tar link entry (symlink target or hard-link source) against
+     * the relocated prefix. Package payloads carry three shapes:
+     *  - a relative path         -> resolve against the link's own directory;
+     *  - a Termux-prefixed path  -> strip the baked prefix, then relative to [dest];
+     *  - any other absolute path -> treat as prefix-relative after stripping '/'.
+     * Without this, absolute links pointed outside the relocated prefix and
+     * hard-link sources were silently skipped (missing files at runtime).
+     */
+    private fun relocateLinkTarget(linkName: String, dest: File, parentDir: File?): File {
+        val raw = linkName.trim()
+        if (raw.isEmpty()) return File(parentDir ?: dest, raw)
+        if (!raw.startsWith("/")) return File(parentDir ?: dest, raw)
+        var rel = raw.trimStart('/')
+        if (rel.startsWith(TERMUX_PAYLOAD_PREFIX)) {
+            rel = rel.substring(TERMUX_PAYLOAD_PREFIX.length)
+        }
+        return File(dest, rel)
     }
 }

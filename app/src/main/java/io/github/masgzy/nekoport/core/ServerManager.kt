@@ -28,6 +28,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 
 data class SiteRuntime(
     val site: SiteConfig,
@@ -87,9 +88,23 @@ class ServerManager private constructor(private val context: Context) {
     private val _config = MutableStateFlow(configStore.load())
     val config: StateFlow<GlobalConfig> = _config
 
+    @Volatile
     private var phpFpmSignature: String = ""
+    @Volatile
     private var ftpSignature: String = ""
-    private val siteSignatures = HashMap<Long, String>()
+    // Touched from several coroutine contexts (site mutex, startAll mutex,
+    // UI scopes); a plain HashMap under two different locks used to be a
+    // theoretical corruption risk.
+    private val siteSignatures = ConcurrentHashMap<Long, String>()
+
+    /**
+     * Set when the user deliberately stopped everything (master switch or
+     * notification stop). The KEEP_ALIVE watchdog must not yank the services
+     * back up afterwards - that made the switch look broken.
+     */
+    @Volatile
+    var userStoppedServices: Boolean = false
+        private set
 
     private val cronScheduler = CronScheduler(context, this)
 
@@ -228,6 +243,8 @@ class ServerManager private constructor(private val context: Context) {
             withContext(Dispatchers.IO) { refreshRuntimeStatus() }
             return@withLock
         }
+        // An explicit start clears the watchdog suppression.
+        userStoppedServices = false
         for (site in _config.value.sites) {
             if (site.enabled) startSiteInternal(site)
         }
@@ -236,15 +253,21 @@ class ServerManager private constructor(private val context: Context) {
         publish()
     }
 
-    suspend fun stopAll() {
+    /**
+     * Stops everything. [userInitiated] marks a deliberate stop (master
+     * switch / notification stop); the cron KEEP_ALIVE watchdog skips
+     * restarts until the next explicit [startAll].
+     */
+    suspend fun stopAll(userInitiated: Boolean = false) {
         startAllMutex.withLock {
             withContext(Dispatchers.IO) {
+                if (userInitiated) userStoppedServices = true
                 ProcessController.stopAll()
                 phpFpmSignature = ""
                 ftpSignature = ""
                 siteSignatures.clear()
                 publish()
-                AppLog.i("Manager", "all services stopped")
+                AppLog.i("Manager", "all services stopped" + if (userInitiated) " (user)" else "")
             }
         }
     }
@@ -303,7 +326,9 @@ class ServerManager private constructor(private val context: Context) {
                     launchLog, sitesRoot,
                 )
             }
-            if (ProcessController.awaitPort(site.port)) {
+            // A foreign app squatting on the port would make awaitPort() true
+            // even though our own process died; require both.
+            if (ProcessController.awaitPort(site.port) && ProcessController.isRunning(key)) {
                 siteSignatures[site.id] = signature
                 setSiteStatus(site.id, null)
                 AppLog.i("Manager", "site '${site.name}' up on ${site.engine.displayName} :${site.port}")
@@ -409,7 +434,7 @@ class ServerManager private constructor(private val context: Context) {
                 context, "ftp", ProcessController.binary(context, "pure-ftpd"), args,
                 File(TermuxRuntime.logsDir(context), "ftp.log"), sitesRoot,
             )
-            if (ProcessController.awaitPort(ftp.port)) {
+            if (ProcessController.awaitPort(ftp.port) && ProcessController.isRunning("ftp")) {
                 ftpSignature = signature
                 _state.value = _state.value.copy(ftpRunning = true, ftpStatusText = null)
                 AppLog.i("Manager", "FTP up on port ${ftp.port} (user '${ftp.username}')")
@@ -448,6 +473,30 @@ class ServerManager private constructor(private val context: Context) {
         val accounts = ftp.effectiveAccounts()
 
         runCatching {
+            // Prune accounts that no longer exist in the config. Without this
+            // the old entries survived in the puredb and the deleted username
+            // kept logging in with its old password (residual credential).
+            val wanted = accounts.map { it.username }.toHashSet()
+            if (passwdFile.exists()) {
+                val existing = runCatching {
+                    passwdFile.readLines()
+                        .filter { it.isNotBlank() && !it.startsWith("#") }
+                        .map { it.substringBefore(':').trim() }
+                        .filter { it.isNotEmpty() }
+                }.getOrDefault(emptyList())
+                for (name in existing) {
+                    if (name in wanted) continue
+                    val (out, rc) = runPurePw(
+                        purePw, listOf("userdel", name, "-f", passwdFile.canonicalPath),
+                        null,
+                    )
+                    if (rc != 0) {
+                        AppLog.w("Manager", "pure-pw userdel $name rc=$rc: $out")
+                    } else {
+                        AppLog.i("Manager", "pure-pw removed stale FTP account '$name'")
+                    }
+                }
+            }
             for (account in accounts) {
                 val name = account.username.filter { it.isLetterOrDigit() || it in "._-" }.ifEmpty { "neko" }
                 val home = account.root.trim().ifEmpty { ftpRoot }

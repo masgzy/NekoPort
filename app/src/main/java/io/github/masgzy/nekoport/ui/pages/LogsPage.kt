@@ -9,7 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -121,7 +121,11 @@ fun LogsPage(contentPadding: PaddingValues) {
                 }
             }
         } else {
-            items(filtered, key = { it.time.toString() + it.tag + it.message }) { entry: LogEntry ->
+            // Key must be unique: two access-log lines within the same
+            // millisecond carry identical time+tag+message, and a duplicate
+            // key crashes the LazyColumn with "Key ... was already used".
+            // Disambiguate with the position in the filtered list.
+            itemsIndexed(filtered, key = { index, entry -> "$index-${entry.time}-${entry.tag}-${entry.message}" }) { _, entry: LogEntry ->
                 LogEntryCard(entry = entry)
             }
         }

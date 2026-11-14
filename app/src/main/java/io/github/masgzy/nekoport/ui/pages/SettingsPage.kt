@@ -158,7 +158,7 @@ fun SettingsPage(contentPadding: PaddingValues) {
                                 context.startActivity(
                                     Intent(
                                         android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
-                                        Uri.parse("package:io.github.masgzy.nekoport"),
+                                        Uri.parse("package:${context.packageName}"),
                                     ),
                                 )
                             }.onFailure {
@@ -592,7 +592,7 @@ private fun RuntimeComponentsCard() {
                     text = stringResource(R.string.dialog_ok),
                     onClick = {
                         scope.launch {
-                            progressFor = pkg.packageName to context.getString(R.string.runtime_installing)
+                            progressFor = pkg.packageName to context.getString(R.string.runtime_uninstalling)
                             val result = TermuxRuntime.uninstallPackage(context, pkg)
                             result.fold(
                                 onSuccess = { errorText = null },
@@ -626,9 +626,9 @@ private fun RuntimeComponentsCard() {
                     text = stringResource(R.string.dialog_ok),
                     onClick = {
                         scope.launch {
-                            progressFor = "__all__" to context.getString(R.string.runtime_installing)
+                            progressFor = "__all__" to context.getString(R.string.runtime_uninstalling)
                             val outcome = runCatching {
-                                manager.stopAll()
+                                manager.stopAll(userInitiated = true)
                                 TermuxRuntime.uninstall(context)
                             }
                             outcome.fold(

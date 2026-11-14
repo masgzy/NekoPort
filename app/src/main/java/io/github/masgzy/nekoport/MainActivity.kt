@@ -39,4 +39,13 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    override fun onDestroy() {
+        // Clear the bridge before the activity object leaks; a destroyed
+        // activity in ActivityHolder also broke later permission requests.
+        if (io.github.masgzy.nekoport.ui.pages.ActivityHolder.activity === this) {
+            io.github.masgzy.nekoport.ui.pages.ActivityHolder.activity = null
+        }
+        super.onDestroy()
+    }
 }

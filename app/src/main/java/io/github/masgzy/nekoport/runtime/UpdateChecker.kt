@@ -5,6 +5,8 @@ import io.github.masgzy.nekoport.core.AppLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
@@ -32,15 +34,20 @@ object UpdateChecker {
     /** Re-checks are skipped within this window after a successful check. */
     private const val THROTTLE_MS = 60_000L
 
+    /** Serializes concurrent checks (settings page entry + manual button). */
+    private val checkMutex = Mutex()
+
     /**
      * Called when the settings page appears. Fetches unless a fresh result is
      * already cached; [force] bypasses the throttle (manual "检查更新").
      */
-    suspend fun check(context: Context, mirror: String, force: Boolean = false) {
+    suspend fun check(context: Context, mirror: String, force: Boolean = false) = checkMutex.withLock {
         val now = System.currentTimeMillis()
         val current = _state.value
-        if (current.checking) return
-        if (!force && current.error == null && now - current.lastCheckedAt < THROTTLE_MS) return
+        // Re-read under the lock: a parallel call may already have flipped the
+        // flags between the caller's decision and the mutex grant.
+        if (current.checking) return@withLock
+        if (!force && current.error == null && now - current.lastCheckedAt < THROTTLE_MS) return@withLock
         _state.value = current.copy(checking = true, error = null)
         _state.value = try {
             val latest = withContext(Dispatchers.IO) {
