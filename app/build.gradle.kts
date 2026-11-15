@@ -15,8 +15,8 @@ val envKeyPass: String? = System.getenv("KEY_PASSWORD")
 
 // Single source of truth for the release identity; the CI release job
 // verifies the pushed tag against baseVersionName.
-val baseVersionName = "0.1.0-alpha.9"
-val baseVersionCode = 12
+val baseVersionName = "0.1.0-alpha.10"
+val baseVersionCode = 13
 
 android {
     namespace = "io.github.masgzy.nekoport"
@@ -33,8 +33,9 @@ android {
         resourceConfigurations += listOf("zh", "en")
     }
 
-    // Per-ABI APKs plus a universal one. Release names use the user-facing
-    // ABI labels: NekoPort-<version>-armv8a / armv7 / x86 / x86-64 / universe.apk
+    // Per-ABI APKs plus a universal one. Release names use the standard
+    // Android ABI names: NekoPort-<version>-arm64-v8a / armeabi-v7a / x86 /
+    // x86_64 / universal.apk
     splits {
         abi {
             isEnable = true
@@ -114,14 +115,7 @@ androidComponents {
             // Split outputs carry exactly one ABI filter; the universal APK
             // has none. Matching on the identifier avoids the FilterType API.
             val abi = output.filters.firstOrNull()?.identifier
-            val label = when (abi) {
-                "arm64-v8a" -> "armv8a"
-                "armeabi-v7a" -> "armv7"
-                "x86_64" -> "x86-64"
-                "x86" -> "x86"
-                null -> "universe"
-                else -> abi
-            }
+            val label = abi ?: "universal"
             val abiCode = when (abi) {
                 "armeabi-v7a" -> 1
                 "arm64-v8a" -> 2

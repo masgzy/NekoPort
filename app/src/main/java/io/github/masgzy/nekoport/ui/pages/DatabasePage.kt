@@ -138,6 +138,7 @@ fun MariaPanel() {
                 SwitchPreference(
                     title = stringResource(R.string.maria_enable),
                     summary = when {
+                        state.mariaStopping -> stringResource(R.string.maria_status_stopping)
                         state.mariaRunning -> stringResource(R.string.maria_status_running, maria.port)
                         state.mariaStatusText != null -> state.mariaStatusText!!
                         else -> stringResource(R.string.maria_status_stopped)
@@ -157,7 +158,7 @@ fun MariaPanel() {
                     },
                 )
                 // Bootstrap/startup failure details; long-press copies.
-                if (!state.mariaRunning && state.mariaStatusText != null) {
+                if (!state.mariaRunning && !state.mariaStopping && state.mariaStatusText != null) {
                     CopyableText(
                         text = state.mariaStatusText!!,
                         color = MiuixTheme.colorScheme.primary,

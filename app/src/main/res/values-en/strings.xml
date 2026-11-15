@@ -133,6 +133,7 @@
     <string name="maria_status_stopped">Stopped</string>
     <string name="maria_status_initializing">Initializing database (first run may take 1-2 minutes)…</string>
     <string name="maria_status_starting">Starting database…</string>
+    <string name="maria_status_stopping">Stopping database…</string>
     <string name="maria_connection">Connection info</string>
     <string name="maria_connection_hint">Apps on this device connect via localhost / 127.0.0.1; root starts with an empty password, local only</string>
     <string name="maria_connection_remote">LAN connections are allowed; other devices can connect via the device IP</string>

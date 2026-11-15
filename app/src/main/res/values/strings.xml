@@ -137,6 +137,7 @@
     <string name="maria_status_stopped">已停止</string>
     <string name="maria_status_initializing">正在初始化数据库（首次约 1-2 分钟）…</string>
     <string name="maria_status_starting">正在启动数据库…</string>
+    <string name="maria_status_stopping">正在停止数据库…</string>
     <string name="maria_connection">连接信息</string>
     <string name="maria_connection_hint">本机应用通过 localhost / 127.0.0.1 连接；root 初始为空密码，仅限本机</string>
     <string name="maria_connection_remote">已允许局域网连接，局域网内设备可通过设备 IP 连接</string>

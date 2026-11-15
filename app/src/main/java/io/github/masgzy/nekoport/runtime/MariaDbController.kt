@@ -178,7 +178,7 @@ object MariaDbController {
      */
     fun start(context: Context, maria: MariaConfig, localOnly: Boolean = false): String? {
         ConfigWriter.writeMariaCnf(context, maria, dataDir(context), localOnly)
-        val cnf = ConfigWriter.effectiveConf(ConfigWriter.mariaCnfAuto(context))
+        val cnf = ConfigWriter.effectiveConf(context, ConfigWriter.mariaCnfAuto(context))
         val log = File(TermuxRuntime.logsDir(context), "mariadb-launch.log")
         ProcessController.launch(
             context, KEY, ProcessController.binary(context, RuntimePackage.MARIADB.binary),

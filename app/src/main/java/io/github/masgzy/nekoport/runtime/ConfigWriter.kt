@@ -60,10 +60,18 @@ object ConfigWriter {
     fun siteAccessLog(context: Context, siteId: Long, engine: Engine): File =
         File(logsDir(context), "site-$siteId-${engine.id}-access.log")
 
-    /** The config file a server actually consumes: the user file when present, else the `.auto`. */
-    fun effectiveConf(auto: File): File {
+    /** The config file a server actually consumes: the user file when present, else the `.auto`.
+     *  Guard rail: a Termux path leak in the user copy (pasted from Termux, restored backup)
+     *  is regex-rewritten to the NekoPort equivalent before the server sees it. */
+    fun effectiveConf(context: Context, auto: File): File {
         val user = File(auto.parentFile, auto.name.removeSuffix(".auto"))
-        return if (user.exists()) user else auto
+        val chosen = if (user.exists()) user else auto
+        runCatching {
+            val prefix = TermuxRuntime.prefixDir(context)
+            val root = TermuxRuntime.runtimeRoot(context)
+            PathGuard.sanitizeAndVerify(chosen, prefix.canonicalPath, root.canonicalPath)
+        }
+        return chosen
     }
 
     /** Seeds the user-editable file from the generated one (no-op when it already exists). */
@@ -188,6 +196,13 @@ object ConfigWriter {
                 "    client_max_body_size 512m;\n" +
                 "    server_tokens off;\n" +
                 "    access_log ${quoted(siteAccessLog(context, site.id, Engine.NGINX))};\n" +
+                // The binary is a Termux build with its temp dirs compiled in
+                // as /data/data/com.termux/... (never writable from this app:
+                // mkdir() failed 13: Permission denied and nginx exited with
+                // [emerg] before opening any port). Override ALL of them -
+                // only the client_body one is actually used for static sites,
+                // but a stray proxy/fastcgi buffer would hit the same wall.
+                nginxTempPaths(run) +
                 "    server {\n" +
                 "        listen ${if (localOnly) "127.0.0.1:" else ""}${site.port};\n" +
                 "        server_name _;\n" +
@@ -221,9 +236,25 @@ object ConfigWriter {
     /** Loopback bind when [localOnly], else all interfaces (previous behavior). */
     private fun bindHost(localOnly: Boolean) = if (localOnly) "127.0.0.1" else "0.0.0.0"
 
+    /** Explicit nginx temp dirs inside the app sandbox. nginx only creates
+     *  the LAST path component itself; the parent must exist. */
+    private fun nginxTempPaths(run: File): String {
+        val dirs = listOf("client_body", "proxy", "fastcgi", "uwsgi", "scgi")
+        val sb = StringBuilder()
+        for (name in dirs) {
+            val dir = File(File(run, "nginx-tmp"), name)
+            runCatching { dir.mkdirs() }
+            sb.append("    ${name}_temp_path ${quoted(dir)};\n")
+        }
+        return sb.toString()
+    }
+
     fun writeHttpdConf(context: Context, site: SiteConfig, docroot: File, localOnly: Boolean = false): File {
         val prefix = TermuxRuntime.prefixDir(context)
         val run = runDir(context)
+        // DefaultRuntimeDir/Mutex point here; httpd does NOT create it itself
+        // (AH00140: Could not create scoreboard) so it must pre-exist.
+        runCatching { File(run, "apache").mkdirs() }
         val conf = engineConfAuto(context, site.id, Engine.APACHE)
         val sock = siteSocket(context, site.id)
         val ext = phpExtensions(site)
@@ -261,6 +292,14 @@ object ConfigWriter {
                 modules.joinToString("") { apacheModule(it, prefix) } +
                 "\n" +
                 "ServerRoot ${quoted(TermuxRuntime.runtimeRoot(context))}\n" +
+                // The Termux httpd build has its runtime dir compiled in as
+                // /data/data/com.termux/.../var/run/apache2; without this
+                // override the parent process aborted before writing any
+                // stderr output (errors only landed in the site ErrorLog),
+                // surfacing as a bare "did not open port; no launch output".
+                // Same for the default mutex location.
+                "DefaultRuntimeDir ${quoted(File(run, "apache"))}\n" +
+                "Mutex file:${quoted(File(run, "apache"))} default\n" +
                 "ServerName localhost\n" +
                 "PidFile ${quoted(File(run, "apache-${site.id}.pid"))}\n" +
                 "Listen ${if (localOnly) "127.0.0.1:" else ""}${site.port}\n" +

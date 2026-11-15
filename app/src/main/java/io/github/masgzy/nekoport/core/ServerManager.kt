@@ -15,6 +15,7 @@ import io.github.masgzy.nekoport.core.CronConfig
 import io.github.masgzy.nekoport.core.CronScheduler
 import io.github.masgzy.nekoport.runtime.ConfigWriter
 import io.github.masgzy.nekoport.runtime.MariaDbController
+import io.github.masgzy.nekoport.runtime.PathGuard
 import io.github.masgzy.nekoport.runtime.ProcessController
 import io.github.masgzy.nekoport.runtime.RuntimePackage
 import io.github.masgzy.nekoport.runtime.TermuxRuntime
@@ -54,6 +55,11 @@ data class ManagerState(
     val ftpStatusText: String? = null,
     val phpFpmRunning: Boolean = false,
     val mariaRunning: Boolean = false,
+    /** True from the moment the user taps the switch off until the process
+     *  is really gone: mariadbd flushes InnoDB on SIGTERM, so stopMaria can
+     *  block for many seconds - without this flag the switch just sat there
+     *  looking frozen. */
+    val mariaStopping: Boolean = false,
     val mariaStatusText: String? = null,
     val cronRunning: Boolean = false,
     val runtime: RuntimeStatus = RuntimeStatus(false),
@@ -369,6 +375,20 @@ class ServerManager private constructor(private val context: Context) {
                 Engine.APACHE -> ConfigWriter.writeHttpdConf(context, site, dir, localOnly)
                 Engine.LIGHTTPD -> ConfigWriter.writeLighttpdConf(context, site, dir, localOnly)
             }
+            // Guard rail: a user-restored/pasted config can reference the
+            // Termux sandbox (the #1 "did not open port: Permission denied"
+            // cause). Regex-rewrite known prefixes; refuse to start on any
+            // leftover instead of crashing the engine with EACCES.
+            PathGuard.sanitizeAndVerify(
+                conf,
+                TermuxRuntime.prefixDir(context).canonicalPath,
+                TermuxRuntime.runtimeRoot(context).canonicalPath,
+            )?.let { reason ->
+                AppLog.e("Manager", "site '${site.name}': $reason")
+                setSiteStatus(site.id, reason)
+                publish()
+                return@withContext
+            }
             val key = "site-${site.id}-${site.engine.id}"
             val launchLog = File(TermuxRuntime.logsDir(context), "$key-launch.log")
             when (site.engine) {
@@ -405,9 +425,17 @@ class ServerManager private constructor(private val context: Context) {
                 AppLog.i("Manager", "site '${site.name}' up on ${site.engine.displayName} :${site.port}")
             } else {
                 siteSignatures.remove(site.id)
-                // Surface the real failure reason (linker/config errors) from
-                // the launch log - a bare "did not open port" gave no clue.
-                val tail = ProcessController.logTail(launchLog)
+                // Surface the real failure reason. The launch log carries
+                // stdout/stderr, but Apache writes parse/start errors into
+                // its ErrorLog FILE instead - so fall back to that when the
+                // launch log is empty ("no launch output" used to hide
+                // exactly this case).
+                val tail = ProcessController.logTail(launchLog).ifBlank {
+                    ProcessController.logTail(
+                        ConfigWriter.siteErrorLog(context, site.id, site.engine),
+                        maxChars = 400,
+                    )
+                }
                 AppLog.e(
                     "Manager",
                     "site '${site.name}' did not open port ${site.port}" +
@@ -461,7 +489,7 @@ class ServerManager private constructor(private val context: Context) {
             val ini = ConfigWriter.phpIni(context)
             if (!ini.exists() && auto.exists()) auto.copyTo(ini, overwrite = true)
         }
-        val conf = ConfigWriter.effectiveConf(ConfigWriter.writePhpFpmConf(context, _config.value.sites))
+        val conf = ConfigWriter.effectiveConf(context, ConfigWriter.writePhpFpmConf(context, _config.value.sites))
         ProcessController.launch(
             context, "php-fpm", ProcessController.binary(context, "php-fpm"),
             listOf("--fpm-config", conf.canonicalPath),
@@ -687,6 +715,13 @@ class ServerManager private constructor(private val context: Context) {
         // would otherwise only run after it - which left the switch showing
         // "starting database..." long after the user tapped it off.
         mariaStopRequested = true
+        // Immediate "stopping..." feedback. The actual stop below waits for
+        // the lifecycle mutexes and then for mariadbd's graceful shutdown
+        // (up to ~12 s); without this the UI looked stuck on "running".
+        _state.value = _state.value.copy(
+            mariaStopping = true,
+            mariaStatusText = context.getString(R.string.maria_status_stopping),
+        )
         scope.launch { runCatching { stopMaria() } }
     }
 
@@ -713,6 +748,7 @@ class ServerManager private constructor(private val context: Context) {
         mariaStopRequested = false
         _state.value = _state.value.copy(
             mariaRunning = false,
+            mariaStopping = false,
             mariaStatusText = context.getString(R.string.maria_status_initializing),
         )
         ProcessController.stop("maria", timeoutMs = 10000)
@@ -789,9 +825,13 @@ class ServerManager private constructor(private val context: Context) {
             withContext(Dispatchers.IO) {
                 mariaStopRequested = true
                 MariaDbController.stop(context)
-                // Kill the "starting database..." label immediately; the start
+                // Kill the "starting/stopping database..." label; the start
                 // path checks [mariaStopRequested] and won't override it.
-                _state.value = _state.value.copy(mariaRunning = false, mariaStatusText = null)
+                _state.value = _state.value.copy(
+                    mariaRunning = false,
+                    mariaStopping = false,
+                    mariaStatusText = null,
+                )
                 publish()
             }
         }

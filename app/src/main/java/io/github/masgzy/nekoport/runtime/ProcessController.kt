@@ -69,6 +69,13 @@ object ProcessController {
         logFile: File,
         cwd: File,
     ): Process {
+        // Final full-text guard: no process of ours may point at the Termux
+        // sandbox (compiled-in defaults are overridden in the generated
+        // configs; anything left over here would die with EACCES anyway).
+        PathGuard.checkLaunchArgs(executable, args)?.let { reason ->
+            AppLog.e(TAG, "refusing to start [$key]: $reason")
+            throw IllegalStateException(reason)
+        }
         stop(key)
         val env = environment(context)
         val pb = ProcessBuilder(listOf(executable.canonicalPath) + args)

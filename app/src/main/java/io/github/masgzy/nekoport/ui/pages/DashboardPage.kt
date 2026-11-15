@@ -151,7 +151,11 @@ fun DashboardPage(contentPadding: PaddingValues) {
                     pkg = RuntimePackage.MARIADB,
                     version = state.runtime.versions[RuntimePackage.MARIADB],
                     running = state.mariaRunning,
-                    detail = if (state.mariaRunning) "127.0.0.1:${config.maria.port}" else "",
+                    detail = when {
+                        state.mariaStopping -> stringResource(R.string.maria_status_stopping)
+                        state.mariaRunning -> "127.0.0.1:${config.maria.port}"
+                        else -> ""
+                    },
                     onClick = { NekoNav.scrollToManagePanel(ManagePanelIndex.MYSQL) },
                 )
                 ComponentRow(
