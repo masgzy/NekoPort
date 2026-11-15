@@ -253,8 +253,15 @@ object ConfigWriter {
         val prefix = TermuxRuntime.prefixDir(context)
         val run = runDir(context)
         // DefaultRuntimeDir/Mutex point here; httpd does NOT create it itself
-        // (AH00140: Could not create scoreboard) so it must pre-exist.
+        // (AH00140: Could not create scoreboard) so it must pre-exist. ALSO
+        // pre-create the COMPILED-IN runtime dir "<ServerRoot>/var/run/apache2":
+        // mod_proxy ignores the directives above and creates its mutex there
+        // (AH00023 / AH02478 when missing); same home for the balancer shm
+        // and rewrite-map mutexes of the Termux build.
         runCatching { File(run, "apache").mkdirs() }
+        runCatching {
+            File(TermuxRuntime.runtimeRoot(context), "var/run/apache2").mkdirs()
+        }
         val conf = engineConfAuto(context, site.id, Engine.APACHE)
         val sock = siteSocket(context, site.id)
         val ext = phpExtensions(site)
@@ -293,13 +300,18 @@ object ConfigWriter {
                 "\n" +
                 "ServerRoot ${quoted(TermuxRuntime.runtimeRoot(context))}\n" +
                 // The Termux httpd build has its runtime dir compiled in as
-                // /data/data/com.termux/.../var/run/apache2; without this
-                // override the parent process aborted before writing any
-                // stderr output (errors only landed in the site ErrorLog),
-                // surfacing as a bare "did not open port; no launch output".
-                // Same for the default mutex location.
+                // "var/run/apache2" RELATIVE TO ServerRoot. mod_proxy creates
+                // its mutex through the OLD ap_global_mutex_create API, which
+                // IGNORES both DefaultRuntimeDir and the Mutex directive:
+                // "AH00023: Couldn't create the proxy mutex (file
+                // <ServerRoot>/var/run/apache2/proxy.<pid>)" when the folder
+                // does not exist. So instead of redirecting it, PRE-CREATE
+                // the compiled-in default dir (below) and keep both sandbox
+                // redirects (unquoted paths - a quoted file: argument may not
+                // even reach mod_proxy) for the mutexes that DO honor them.
                 "DefaultRuntimeDir ${quoted(File(run, "apache"))}\n" +
-                "Mutex file:${quoted(File(run, "apache"))} default\n" +
+                "Mutex file:${File(run, "apache").canonicalPath} default\n" +
+                "Mutex file:${File(run, "apache").canonicalPath} proxy\n" +
                 "ServerName localhost\n" +
                 "PidFile ${quoted(File(run, "apache-${site.id}.pid"))}\n" +
                 "Listen ${if (localOnly) "127.0.0.1:" else ""}${site.port}\n" +

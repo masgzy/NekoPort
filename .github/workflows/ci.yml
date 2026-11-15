@@ -126,6 +126,13 @@ jobs:
           - **关闭不再「卡住」**：mariadbd 收到关闭信号后要刷盘，停止实际需要数秒，但界面此前没有任何反馈，开关停在原位像死机；现在点击关闭立即显示「正在停止数据库…」（仪表盘组件行同步显示），进程真正退出后开关才切到关闭
           - 启动被中断后重复点开/关闭的状态残留清理
 
+          ## 🛠 修复（0.1.0-alpha.11）—— Apache 代理互斥锁修复
+
+          ### Apache 启动失败修复（第二阶段）
+          - **proxy mutex 修复**：alpha.10 已让 Apache 报出真实错误（AH00023/AH02478： Couldn't create the proxy mutex），根因是 Termux 构建的 mod_proxy 走旧式 API 创建互斥锁，**无视** DefaultRuntimeDir / Mutex 指令，坚持用编译期默认的相对路径 `<ServerRoot>/var/run/apache2/proxy.<pid>`，而该目录不存在
+          - 现在每次启动 Apache 站点前**预创建这个编译默认目录**（runtime/var/run/apache2），互斥锁直接落在应用沙箱内；同时保留并修正 Mutex 指令（去掉引号 + 显式覆盖 proxy），双重保险
+          - nginx（alpha.10 修复后用户实测已正常）、MariaDB、lighttpd 均不受影响
+
           ## 📦 安装
           - 按设备架构下载对应 APK：**arm64-v8a**（绝大多数现代手机）、**armeabi-v7a**、**x86_64**、**x86**，或下载 **universal** 全架构包
           - 系统要求 Android 8.0+；首次使用需联网安装服务器组件（约 50-100 MB）
