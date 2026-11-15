@@ -84,6 +84,28 @@ object ConfigWriter {
     private fun quoted(path: File) = "\"" + path.canonicalPath + "\""
 
     /**
+     * php-fpm ini values: quote AND escape. Bare values are truncated at the
+     * first space (`/sdcard/My Documents` became `/sdcard/My`, silently
+     * breaking open_basedir), and a raw newline inside the user-typed docRoot
+     * injected arbitrary pool directives - e.g. clearing
+     * security.limit_extensions (php2shell protection) or widening
+     * open_basedir to /. Quotes are escaped so the value stays one line.
+     */
+    private fun iniQuoted(path: String): String {
+        val clean = path.replace("\r", " ").replace("\n", " ").replace("\\", "\\\\").replace("\"", "\\\"")
+        return "\"$clean\""
+    }
+
+    /**
+     * Last-resort sanitization for a STORED docRoot: the UI now validates
+     * docRoot on save, but legacy configs (or hand-edited config.json) may
+     * still carry quotes/newlines that break out of the quoted engine
+     * directives (nginx root, Apache <Directory>, php-fpm pool values).
+     */
+    fun safeDocRootPath(path: String): String =
+        path.replace("\r", " ").replace("\n", " ").replace("\"", "")
+
+    /**
      * Config tokens (index file names, PHP extensions, deny-dir names) are
      * user-typed and get spliced into nginx/Apache/lighttpd/php-fpm config
      * text. Anything outside [A-Za-z0-9._-] can smuggle quotes/backslashes
@@ -405,7 +427,7 @@ object ConfigWriter {
         sb.appendLine("daemonize = no")
         sb.appendLine("process_control_timeout = 5s")
         for (site in sites.filter { it.enablePhp }) {
-            val customRoot = site.docRoot.trim()
+            val customRoot = safeDocRootPath(site.docRoot.trim())
             val docroot = if (customRoot.isEmpty()) File(sitesRoot, site.name) else File(customRoot)
             val sock = siteSocket(context, site.id)
             val siteTmp = File(TermuxRuntime.tmpDir(context), "site-${site.id}").apply { mkdirs() }
@@ -426,12 +448,12 @@ object ConfigWriter {
             // pool-level directive: FastCGI requests for other extensions are
             // refused outright (core php2shell mitigation)
             sb.appendLine("security.limit_extensions = ${safeTokens(site.phpExtensions).joinToString(" ") { ".$it" }}")
-            sb.appendLine("php_admin_value[doc_root] = ${docroot.canonicalPath}")
-            sb.appendLine("php_admin_value[open_basedir] = ${docroot.canonicalPath}:${siteTmp.canonicalPath}")
-            sb.appendLine("php_admin_value[upload_tmp_dir] = ${siteTmp.canonicalPath}")
-            sb.appendLine("php_admin_value[sys_temp_dir] = ${siteTmp.canonicalPath}")
-            sb.appendLine("php_admin_value[session.save_path] = ${siteSession.canonicalPath}")
-            sb.appendLine("php_admin_value[error_log] = ${File(logsDir(context), "site-${site.id}-php.log").canonicalPath}")
+            sb.appendLine("php_admin_value[doc_root] = ${iniQuoted(docroot.canonicalPath)}")
+            sb.appendLine("php_admin_value[open_basedir] = ${iniQuoted(docroot.canonicalPath + ":" + siteTmp.canonicalPath)}")
+            sb.appendLine("php_admin_value[upload_tmp_dir] = ${iniQuoted(siteTmp.canonicalPath)}")
+            sb.appendLine("php_admin_value[sys_temp_dir] = ${iniQuoted(siteTmp.canonicalPath)}")
+            sb.appendLine("php_admin_value[session.save_path] = ${iniQuoted(siteSession.canonicalPath)}")
+            sb.appendLine("php_admin_value[error_log] = ${iniQuoted(File(logsDir(context), "site-${site.id}-php.log").canonicalPath)}")
             sb.appendLine("php_admin_flag[display_errors] = off")
             sb.appendLine("php_admin_flag[cgi.fix_pathinfo] = 0")
         }

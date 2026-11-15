@@ -74,6 +74,7 @@ import top.yukonga.miuix.kmp.icon.extended.Close
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import java.io.File
+import java.io.FileOutputStream
 
 /**
  * A file opened in the full-screen overlay editor. Config files are editable
@@ -667,6 +668,34 @@ private class EditorBridge(
     }
 }
 
+/**
+ * Crash/power-loss safe write for editor saves - the same tmp + fsync +
+ * rename contract as ConfigStore, which every generated config already
+ * enjoys. `writeText` truncated the LIVE file first: the app dying mid-write
+ * left the site's index.php or my.cnf empty/half-written with no backup, and
+ * PHP-FPM could cache the torn bytecode. A one-shot `.bak` of the previous
+ * version gives the user a recovery path.
+ */
+private object EditorFileWriter {
+    fun writeAtomic(target: File, content: String) {
+        target.parentFile?.mkdirs()
+        if (target.exists()) {
+            runCatching {
+                target.copyTo(File(target.parentFile, target.name + ".bak"), overwrite = true)
+            }
+        }
+        val tmp = File(target.parentFile, target.name + ".tmp")
+        FileOutputStream(tmp).use { out ->
+            out.write(content.toByteArray(Charsets.UTF_8))
+            out.fd.sync() // survive power loss: rename without fsync can land an empty file
+        }
+        if (!tmp.renameTo(target)) {
+            target.writeText(tmp.readText())
+            tmp.delete()
+        }
+    }
+}
+
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 private fun EditorWebView(
@@ -696,7 +725,10 @@ private fun EditorWebView(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                 )
                 settings.javaScriptEnabled = true
-                settings.allowFileAccess = true
+                // Editor assets load from file:///android_asset, which does not
+                // need general file:// access; leaving it on let a compromised
+                // page reach file:// URLs it should never see.
+                settings.allowFileAccess = false
                 isFocusable = true
                 isFocusableInTouchMode = true
                 setBackgroundColor(surfaceArgb)
@@ -722,12 +754,16 @@ private fun EditorWebView(
                     },
                     onSave = { id, content ->
                         val target = OverlayBus.editor.value?.targets?.firstOrNull { it.id == id }
-                        if (target == null) {
+                        if (target == null || target.readOnly) {
+                            // Data-boundary enforcement: the readOnly flag used
+                            // to exist only in the UI (hidden save button), so
+                            // ANY JS inside the WebView could call
+                            // NekoEditor.save() directly and overwrite a
+                            // read-only log/config. Refuse here regardless.
                             false
                         } else {
                             runCatching {
-                                target.file.parentFile?.mkdirs()
-                                target.file.writeText(content)
+                                EditorFileWriter.writeAtomic(target.file, content)
                             }.isSuccess
                         }
                     },

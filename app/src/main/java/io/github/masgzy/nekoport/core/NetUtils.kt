@@ -2,7 +2,6 @@ package io.github.masgzy.nekoport.core
 
 import java.net.Inet4Address
 import java.net.NetworkInterface
-import java.net.URLDecoder
 import java.util.Collections
 
 object NetUtils {
@@ -25,16 +24,7 @@ object NetUtils {
     }
 }
 
-/**
- * Percent-decoding helpers shared by the HTTP engine.
- */
-object UrlCodec {
-
-    /** Decodes percent-escapes; returns null when a stray NUL byte appears. */
-    fun decode(raw: String): String? {
-        val decoded = runCatching { URLDecoder.decode(raw.replace("+", "%2B"), "UTF-8") }.getOrNull()
-            ?: return null
-        if (decoded.indexOf('\u0000') >= 0) return null
-        return decoded
-    }
-}
+// The former UrlCodec "percent-decoding helpers" were dead code (zero
+// call sites): HTTP is served by the real nginx/Apache/lighttpd binaries,
+// which do their own decoding. Removing it so nobody assumes the app
+// percent-decodes URLs anywhere (e.g. that %2e%2e%2f is handled here).

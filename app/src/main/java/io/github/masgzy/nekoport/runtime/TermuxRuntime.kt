@@ -23,7 +23,9 @@ import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
 import java.net.HttpURLConnection
+import java.net.URI
 import java.net.URL
+import java.security.MessageDigest
 import java.util.ArrayDeque
 
 /**
@@ -598,7 +600,40 @@ object TermuxRuntime {
     // Repo plumbing
     // ------------------------------------------------------------------
 
-    data class Pkg(val name: String, val version: String, val depends: List<String>, val filename: String)
+    data class Pkg(val name: String, val version: String, val depends: List<String>, val filename: String, val sha256: String? = null)
+
+    /** Maximum redirect hops the mirror client follows. */
+    private const val MAX_REDIRECTS = 3
+
+    /**
+     * Strict mirror URL validation - the settings UI applies the same rules,
+     * but config.json can be edited out of band, so EVERY fetch re-validates:
+     *  - scheme must be https (starts-with("https://") alone accepted
+     *    `https://trusted.example@evil.example/` because it never parsed the
+     *    URL - the displayed host and the connected host could differ);
+     *  - a real dotted host, no userinfo, no whitespace / control characters.
+     */
+    private fun validateMirrorUrl(url: String) {
+        if (url.any { it in " \t\r\n" }) {
+            throw RepoException("mirror URL contains whitespace/control characters")
+        }
+        if (!url.startsWith("https://")) {
+            throw RepoException("insecure mirror URL blocked (only https:// is allowed)")
+        }
+        val uri = runCatching { URI(url) }.getOrElse {
+            throw RepoException("malformed mirror URL: ${it.message}")
+        }
+        if (uri.scheme != "https") {
+            throw RepoException("mirror URL scheme must be https")
+        }
+        val host = uri.host
+        if (host.isNullOrBlank() || !host.contains('.')) {
+            throw RepoException("mirror URL has no valid host")
+        }
+        if (uri.userInfo != null) {
+            throw RepoException("mirror URL must not contain userinfo (user@host)")
+        }
+    }
 
     private fun openConnection(url: String, connectTimeout: Int = 15000, readTimeout: Int = 30000): HttpURLConnection {
         // Supply-chain hardening: the package index and every .deb are the
@@ -607,22 +642,67 @@ object TermuxRuntime {
         // executed with the app uid - refuse them here even if an old
         // config.json still carries an http:// mirror (the settings UI only
         // accepts https:// now, and the manifest blocks cleartext traffic).
-        if (!url.startsWith("https://")) {
-            throw RepoException("insecure mirror URL blocked (only https:// is allowed)")
-        }
+        validateMirrorUrl(url)
         val conn = URL(url).openConnection() as HttpURLConnection
         conn.connectTimeout = connectTimeout
         conn.readTimeout = readTimeout
-        conn.instanceFollowRedirects = true
+        // Auto-follow only validated the FIRST hop's scheme; a hijacked
+        // mirror could 302 to any other https host and keep feeding binaries.
+        // Redirects are followed manually in [openVerified] with per-hop
+        // validation and a hop limit.
+        conn.instanceFollowRedirects = false
         conn.setRequestProperty("User-Agent", USER_AGENT)
         return conn
     }
 
+    /**
+     * Opens [url] and follows 3xx redirects manually: every hop goes through
+     * [openConnection]'s strict https/host validation, hops are capped at
+     * [MAX_REDIRECTS], relative Location headers are resolved against the
+     * current URL. Returns the connection of the FINAL hop, already
+     * connected, ready to read the body.
+     */
+    private fun openVerified(url: String, connectTimeout: Int = 15000, readTimeout: Int = 30000): HttpURLConnection {
+        var current = url
+        var hops = 0
+        while (true) {
+            val conn = openConnection(current, connectTimeout, readTimeout)
+            conn.connect()
+            val code = conn.responseCode
+            if (code in 300..399 && code != HttpURLConnection.HTTP_NOT_MODIFIED) {
+                val location = conn.getHeaderField("Location")
+                conn.disconnect()
+                if (location.isNullOrBlank()) {
+                    throw RepoException("redirect without Location header from $current")
+                }
+                if (++hops > MAX_REDIRECTS) {
+                    throw RepoException("too many redirects (>$MAX_REDIRECTS)")
+                }
+                current = URL(URL(current), location).toString()
+                AppLog.i(TAG, "mirror redirect hop $hops -> $current")
+                continue
+            }
+            return conn
+        }
+    }
+
+    /**
+     * A Filename line comes straight from the (possibly hostile) mirror and
+     * is spliced into the download URL. Accept only well-formed in-repo
+     * paths: relative, no `..`, no backslash/newline, plain repo characters,
+     * ending in .deb. Anything else drops the package from the index.
+     */
+    private fun isFilenameSafe(filename: String): Boolean =
+        filename.isNotEmpty() &&
+            !filename.startsWith('/') &&
+            !filename.contains("..") &&
+            filename.endsWith(".deb") &&
+            Regex("^[A-Za-z0-9._+~:-]+(/[A-Za-z0-9._+~:-]+)*\\.deb$").matches(filename)
+
     private fun fetchIndex(base: String, arch: String): Map<String, Pkg> {
         val url = "$base/dists/stable/main/binary-$arch/Packages"
         val text = runCatching {
-            openConnection(url).let { conn ->
-                conn.connect()
+            openVerified(url).let { conn ->
                 if (conn.responseCode != 200) throw RepoException("index HTTP ${conn.responseCode}")
                 val declared = conn.contentLengthLong
                 if (declared > MAX_INDEX_BYTES) throw RepoException("package index too large: $declared bytes")
@@ -648,16 +728,24 @@ object TermuxRuntime {
             var version = ""
             var depends = emptyList<String>()
             var filename = ""
+            var sha256: String? = null
             for (line in block.lines()) {
                 when {
                     line.startsWith("Package: ") -> name = line.substring(9).trim()
                     line.startsWith("Version: ") -> version = line.substring(9).trim()
                     line.startsWith("Depends: ") -> depends = line.substring(9).split(',')
                     line.startsWith("Filename: ") -> filename = line.substring(10).trim()
+                    line.startsWith("SHA256: ") -> sha256 = line.substring(8).trim().lowercase(java.util.Locale.US)
                 }
             }
+            // A hostile Filename (path traversal, absolute path) must never
+            // reach the download URL: drop the whole package block instead.
+            if (name != null && filename.isNotEmpty() && !isFilenameSafe(filename)) {
+                AppLog.w(TAG, "index block for '$name' has an unsafe Filename ('$filename'); package dropped")
+                name = null
+            }
             if (name != null && filename.isNotEmpty()) {
-                map[name] = Pkg(name, version, depends, filename)
+                map[name] = Pkg(name, version, depends, filename, sha256)
             }
         }
         return map
@@ -710,8 +798,7 @@ object TermuxRuntime {
         val url = "$base/${pkg.filename}"
         val target = File(cacheDir(context), pkg.name.replace(Regex("[^A-Za-z0-9._-]"), "_") + ".deb")
         AppLog.i(TAG, "downloading ${pkg.name} from $url")
-        val conn = openConnection(url, readTimeout = 60000)
-        conn.connect()
+        val conn = openVerified(url, readTimeout = 60000)
         if (conn.responseCode !in 200..299) throw RepoException("HTTP ${conn.responseCode} for ${pkg.name}")
         val total = conn.contentLengthLong
         if (total > MAX_DEB_BYTES) throw RepoException("${pkg.name}: download too large (${total} bytes)")
@@ -735,7 +822,40 @@ object TermuxRuntime {
             }
         }
         if (target.length() == 0L) throw RepoException("empty download for ${pkg.name}")
+        verifySha256(target, pkg)
         return target
+    }
+
+    /**
+     * The ELF-magic check ([isExecutableValid]) only proves "looks like an
+     * ELF", not "is the binary upstream shipped" - any `\x7fELF` file passed
+     * it. Termux's Packages index carries each artifact's SHA256; when the
+     * field is present it is now mandatory: a mismatch deletes the download
+     * and aborts the install instead of extracting and executing it.
+     */
+    private fun verifySha256(target: File, pkg: Pkg) {
+        val expected = pkg.sha256?.trim()?.lowercase(java.util.Locale.US)
+        if (expected.isNullOrBlank()) {
+            AppLog.w(TAG, "${pkg.name}: index has no SHA256; integrity cannot be verified")
+            return
+        }
+        val digest = MessageDigest.getInstance("SHA-256")
+        FileInputStream(target).use { input ->
+            val buf = ByteArray(65536)
+            while (true) {
+                val n = input.read(buf)
+                if (n < 0) break
+                digest.update(buf, 0, n)
+            }
+        }
+        val actual = digest.digest().joinToString("") { "%02x".format(it) }
+        if (actual != expected) {
+            target.delete()
+            throw RepoException(
+                "${pkg.name}: SHA256 mismatch - mirror content is corrupted or tampered " +
+                    "(expected $expected, got $actual)",
+            )
+        }
     }
 
     /** Extracts the `data.tar.*` payload of a .deb into [dest], path-traversal safe.

@@ -527,6 +527,16 @@ private fun SiteEditorDialog(site: SiteConfig?, onDismiss: () -> Unit) {
                             showError(R.string.site_port_conflict_pasv)
                             return@NekoTextButton
                         }
+                        // docRoot reaches THREE generated configs (nginx root,
+                        // Apache <Directory>, php-fpm pool values). A newline
+                        // injected arbitrary pool directives (open_basedir=/,
+                        // security.limit_extensions=), a colon split
+                        // open_basedir in two, spaces truncated bare ini
+                        // values. Reject anything dangerous here.
+                        if (!SiteConfig.isDocRootValid(docRoot.text)) {
+                            showError(R.string.site_docroot_invalid)
+                            return@NekoTextButton
+                        }
                         val engine = Engine.entries[engineIndex.coerceIn(0, Engine.entries.lastIndex)]
                         val finalName: String
                         if (isNew) {

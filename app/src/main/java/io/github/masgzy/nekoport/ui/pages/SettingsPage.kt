@@ -354,10 +354,11 @@ private fun CustomMirrorDialog(
                     text = stringResource(R.string.dialog_ok),
                     onClick = {
                         val value = url.text.trim()
-                        // https:// only: the package index and every .deb are
-                        // executed after extraction - a cleartext mirror is a
+                        // Strict URL PARSING, not a prefix check: the package
+                        // index and every .deb are executed after extraction -
+                        // a look-alike mirror (userinfo trick, bad host) is a
                         // remote-code-execution vector on hostile networks.
-                        if (value.startsWith("https://")) {
+                        if (isMirrorUrlValid(value)) {
                             onSave(value)
                         } else {
                             showError = true
@@ -368,6 +369,25 @@ private fun CustomMirrorDialog(
             }
         }
     }
+}
+
+/**
+ * Strict mirror URL validation - mirrors the runtime-side checks in
+ * TermuxRuntime (every fetch re-validates there, this is the UX layer):
+ * https scheme, a real dotted host, no userinfo, no whitespace. A plain
+ * startsWith("https://") accepted `https://trusted.example@evil.example/` -
+ * the visible text looked like the trusted host while the device connected
+ * to evil.example.
+ */
+private fun isMirrorUrlValid(value: String): Boolean {
+    if (value.isEmpty() || value.any { it in " \t\r\n" }) return false
+    if (!value.startsWith("https://")) return false
+    val uri = runCatching { java.net.URI(value) }.getOrNull() ?: return false
+    if (uri.scheme != "https") return false
+    val host = uri.host ?: return false
+    if (host.isBlank() || !host.contains('.')) return false
+    if (uri.userInfo != null) return false
+    return true
 }
 
 private fun isIgnoringBatteryOptimizations(context: Context): Boolean =

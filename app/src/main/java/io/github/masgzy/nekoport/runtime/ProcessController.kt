@@ -6,7 +6,6 @@ import java.io.File
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Owns every external server process (nginx / httpd / lighttpd / php-fpm /
@@ -26,7 +25,9 @@ object ProcessController {
     private val SERVER_BINARIES = setOf("mariadbd", "php-fpm", "nginx", "lighttpd", "httpd", "pure-ftpd")
 
     private val processes = ConcurrentHashMap<String, Process>()
-    private val stopping = AtomicBoolean(false)
+
+    /** Monitor serializing [stopAll] bodies so concurrent callers queue up. */
+    private val stopping = Object()
 
     /** Environment shared by every bundled binary (Termux layout). */
     fun environment(context: Context): Map<String, String> {
@@ -115,7 +116,14 @@ object ProcessController {
         return runCatching { p.isAlive }.getOrDefault(false)
     }
 
-    /** Terminates a process gracefully (SIGTERM), then forcibly if needed. */
+    /**
+     * Terminates a process gracefully (SIGTERM), then forcibly if needed.
+     * After SIGKILL the kernel tears the process down asynchronously - port
+     * listeners (TIME_WAIT/LISTEN release) may lag behind - so [stop] waits
+     * briefly even after the forced kill. Without that, a stop-then-restart
+     * sequence (cron RESTART_SERVICES, config change) could hit
+     * "Address already in use" against its own dying process.
+     */
     fun stop(key: String, timeoutMs: Long = 8000) {
         val p = processes.remove(key) ?: return
         if (!runCatching { p.isAlive }.getOrDefault(false)) return
@@ -127,16 +135,24 @@ object ProcessController {
         if (runCatching { p.isAlive }.getOrDefault(false)) {
             AppLog.w(TAG, "[$key] did not exit in time, killing")
             runCatching { p.destroyForcibly() }
+            // SIGKILL delivery is asynchronous; give the kernel a moment so
+            // the sockets are actually released before the caller re-binds.
+            runCatching { p.waitFor(2, java.util.concurrent.TimeUnit.SECONDS) }
         }
         AppLog.i(TAG, "stopped [$key]")
     }
 
+    /**
+     * Stops every tracked process. Concurrent callers WAIT for the running
+     * shutdown to finish instead of silently returning: the old
+     * compareAndSet-skip made "cron restart vs user master switch" a race
+     * where the loser stopped nothing and the caller could not tell - the
+     * subsequent startAll then collided with the still-alive processes
+     * (EADDRINUSE, sites randomly not coming up).
+     */
     fun stopAll() {
-        if (!stopping.compareAndSet(false, true)) return
-        try {
+        synchronized(stopping) {
             for (key in processes.keys.toList()) stop(key)
-        } finally {
-            stopping.set(false)
         }
     }
 

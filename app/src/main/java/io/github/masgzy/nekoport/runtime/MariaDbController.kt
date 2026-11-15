@@ -234,11 +234,13 @@ object MariaDbController {
         val args = mutableListOf(
             "--protocol=tcp", "-h", "127.0.0.1", "-P", maria.port.toString(), "-u", "root",
         )
-        if (currentPassword.isNotEmpty()) {
-            args.add("-p$currentPassword")
-        }
         args.addAll(listOf("-e", sql))
-        val (out, rc) = runClient(context, client, args)
+        // The password travels via the MYSQL_PWD environment variable, never
+        // via argv: every process of the app uid (php-fpm pools, cron shells,
+        // a compromised WordPress) can read /proc/<pid>/cmdline of its
+        // siblings, and "-p<secret>" there would hand out the root password
+        // to exactly the code open_basedir is supposed to contain.
+        val (out, rc) = runClient(context, client, args, env = mapOf("MYSQL_PWD" to currentPassword))
         return if (rc != 0) {
             val reason = out.trim().take(200).ifEmpty { "mariadb client rc=$rc" }
             Result.failure(IllegalStateException(reason))
@@ -413,9 +415,12 @@ object MariaDbController {
     }
 
     /** Runs the bundled mariadb client with a hard timeout. Returns (output, exitCode). */
-    private fun runClient(context: Context, client: File, args: List<String>): Pair<String, Int> {
+    private fun runClient(context: Context, client: File, args: List<String>, env: Map<String, String> = emptyMap()): Pair<String, Int> {
         val pb = ProcessBuilder(listOf(client.canonicalPath) + args)
         pb.environment().putAll(ProcessController.environment(context))
+        // Extra variables (e.g. MYSQL_PWD) never land in argv, so sibling
+        // processes of the same uid cannot scrape them from /proc.
+        pb.environment().putAll(env)
         pb.redirectErrorStream(true)
         return runCatching {
             val proc = pb.start()

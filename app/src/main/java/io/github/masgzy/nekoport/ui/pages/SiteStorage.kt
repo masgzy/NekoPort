@@ -8,6 +8,7 @@ import android.os.Environment
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
+import java.io.File
 
 /**
  * Storage access helper for custom site document roots outside the app
@@ -24,29 +25,40 @@ object SiteStorage {
         if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_IMAGES
         else Manifest.permission.READ_EXTERNAL_STORAGE
 
-    fun hasStoragePermission(context: Context): Boolean {
-        if (Build.VERSION.SDK_INT < 29) {
-            return ContextCompat.checkSelfPermission(context, Manifest.permission.READ_EXTERNAL_STORAGE) ==
-                PackageManager.PERMISSION_GRANTED
-        }
-        // Android 10+: legacy external storage is only available when the
-        // user granted READ_EXTERNAL_STORAGE at install/first-run time.
-        return ContextCompat.checkSelfPermission(context, permission()) ==
-            PackageManager.PERMISSION_GRANTED ||
-            Environment.isExternalStorageLegacy()
-    }
+    /**
+     * ACTUAL writability probe instead of a permission-bit check: on
+     * Android 13+ READ_MEDIA_IMAGES grants media-file access only, which
+     * says NOTHING about creating `/sdcard/<site>/` as a docroot. The old
+     * chain - permission row shows "granted", mkdirs() then fails, site
+     * serves nothing - was practically undiagnosable. Try the real thing:
+     * create + delete a probe file in the shared-storage root.
+     */
+    fun canWriteSharedStorage(): Boolean = runCatching {
+        val root = Environment.getExternalStorageDirectory()
+        if (!root.isDirectory && !root.mkdirs()) return@runCatching false
+        val probe = File(root, ".NekoPort-write-probe-${System.currentTimeMillis()}")
+        val ok = probe.createNewFile()
+        probe.delete()
+        ok
+    }.getOrDefault(false)
+
+    fun hasStoragePermission(context: Context): Boolean = canWriteSharedStorage()
 
     /**
-     * Requests the storage permission and returns whether it was granted.
-     * Must be called from the main thread (it shows the system dialog).
+     * Requests the storage permission and returns whether shared storage is
+     * REALLY writable afterwards (probe-verified). Must be called from the
+     * main thread (it shows the system dialog).
      * Hard timeout: the launcher key survives process recreation poorly, and
      * a dialog the user never answers used to hang the calling coroutine
      * (and its UI progress state) forever.
      */
     suspend fun ensureStoragePermission(context: Context): Boolean {
-        if (hasStoragePermission(context)) return true
+        if (canWriteSharedStorage()) return true
         return try {
-            kotlinx.coroutines.withTimeout(60_000) { requestPermission(context, permission()) }
+            val granted = kotlinx.coroutines.withTimeout(60_000) { requestPermission(context, permission()) }
+            // The dialog may say "granted" while scoped storage still blocks
+            // arbitrary paths; only the probe is authoritative.
+            granted && canWriteSharedStorage()
         } catch (_: kotlinx.coroutines.TimeoutCancellationException) {
             false
         }

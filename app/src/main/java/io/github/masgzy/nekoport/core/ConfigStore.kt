@@ -31,7 +31,7 @@ class ConfigStore(context: Context) {
     fun load(): GlobalConfig {
         if (!file.exists()) return GlobalConfig()
         try {
-            var config = json.decodeFromString<GlobalConfig>(file.readText())
+            var config = unseal(json.decodeFromString<GlobalConfig>(file.readText()))
             // One-shot mirror migration: installs before 0.1.0-alpha.3 defaulted
             // to the official Termux mirror; switch them to Tsinghua once, unless
             // the user already picked a non-default mirror themselves.
@@ -63,7 +63,7 @@ class ConfigStore(context: Context) {
             val bak = File(file.parentFile, "config.json.bak")
             if (bak.exists()) {
                 try {
-                    val config = json.decodeFromString<GlobalConfig>(bak.readText())
+                    val config = unseal(json.decodeFromString<GlobalConfig>(bak.readText()))
                     AppLog.w("ConfigStore", "recovered config from config.json.bak")
                     save(config)
                     return config
@@ -75,9 +75,36 @@ class ConfigStore(context: Context) {
         }
     }
 
+    /** Seals every secret (FTP passwords, cron commands) before it hits disk. */
+    private fun seal(config: GlobalConfig): GlobalConfig = config.copy(
+        ftp = config.ftp.copy(
+            password = SecretStore.encrypt(config.ftp.password),
+            accounts = config.ftp.accounts.map {
+                it.copy(password = SecretStore.encrypt(it.password))
+            },
+        ),
+        cron = config.cron.copy(
+            tasks = config.cron.tasks.map { it.copy(command = SecretStore.encrypt(it.command)) },
+        ),
+    )
+
+    /** Unseals on load. Legacy plaintext values pass through unchanged. */
+    private fun unseal(config: GlobalConfig): GlobalConfig = config.copy(
+        ftp = config.ftp.copy(
+            password = SecretStore.decrypt(config.ftp.password),
+            accounts = config.ftp.accounts.map {
+                it.copy(password = SecretStore.decrypt(it.password))
+            },
+        ),
+        cron = config.cron.copy(
+            tasks = config.cron.tasks.map { it.copy(command = SecretStore.decrypt(it.command)) },
+        ),
+    )
+
     @Synchronized
     fun save(config: GlobalConfig) {
         runCatching {
+            val config = seal(config)
             // Rolling backup of the previous version (also written atomically
             // so a crash mid-copy cannot leave a half-written .bak).
             if (file.exists()) {

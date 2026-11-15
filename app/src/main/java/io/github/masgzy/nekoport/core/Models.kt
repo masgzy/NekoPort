@@ -57,6 +57,29 @@ data class SiteConfig(
     companion object {
         val NAME_REGEX = Regex("^[A-Za-z0-9_-]{1,64}$")
         fun isPortValid(port: Int): Boolean = port in 1024..65535
+
+        /**
+         * Validates a custom docRoot BEFORE it reaches the generated engine
+         * configs (nginx root / Apache <Directory> / php-fpm pool values):
+         *  - absolute path;
+         *  - no newline/quote/backslash: a newline could inject arbitrary
+         *    php-fpm pool directives (e.g. clear security.limit_extensions or
+         *    widen open_basedir to /), a quote breaks the quoted nginx/Apache
+         *    directives;
+         *  - no `:` (php-fpm's open_basedir separator - a colon would split
+         *    the path into two directories with a different real boundary);
+         *  - no `.` / `..` path segments (no silent traversal surprises).
+         * Empty string is valid (the default private dir is used).
+         */
+        fun isDocRootValid(path: String): Boolean {
+            val p = path.trim()
+            if (p.isEmpty()) return true
+            if (!p.startsWith("/")) return false
+            if (p.any { it == '\n' || it == '\r' || it == '"' || it == '\\' || it == '\t' || it == '\u0000' }) return false
+            if (p.contains(':')) return false
+            if (p.split('/').any { it == "." || it == ".." }) return false
+            return true
+        }
     }
 }
 

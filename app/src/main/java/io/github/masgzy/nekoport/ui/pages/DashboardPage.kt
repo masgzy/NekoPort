@@ -287,6 +287,11 @@ private fun DashboardSiteCard(runtime: SiteRuntime) {
     val scope = rememberCoroutineScope()
     val site = runtime.site
     val url = "http://localhost:${site.port}"
+    // "仅本机监听" binds every generated listener to 127.0.0.1: showing (and
+    // opening) a LAN address then was a functional lie - the browser could
+    // never connect - and visually promised LAN reachability that the user
+    // deliberately turned off.
+    val localOnly = manager.config.collectAsState().value.settings.localOnly
     // The LAN address changes when the phone roams between networks; the old
     // remember(site.id) kept the stale IP forever (FTP already refreshes on a
     // timer, the dashboard did not).
@@ -398,7 +403,7 @@ private fun DashboardSiteCard(runtime: SiteRuntime) {
             colorScheme = colorScheme,
             onClick = { openBrowser(url) },
         )
-        if (lanIp != null) {
+        if (lanIp != null && !localOnly) {
             AddressRow(
                 label = stringResource(R.string.dashboard_lan_addr),
                 address = "http://$lanIp:${site.port}",

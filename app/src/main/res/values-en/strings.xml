@@ -3,7 +3,7 @@
     <string name="app_name">NekoPort</string>
     <string name="notification_channel_server">Server status</string>
     <string name="notification_running_title">NekoPort is running</string>
-    <string name="notification_running_text">%1$d site(s) serving · FTP %2$s</string>
+    <string name="notification_running_text">%1$d site(s) serving · FTP %2$s · DB %3$s</string>
     <string name="notification_stop_action">Stop all services</string>
 
     <string name="tab_dashboard">Dashboard</string>
@@ -282,4 +282,15 @@
     <string name="dialog_ok">OK</string>
     <string name="dialog_cancel">Cancel</string>
     <string name="dialog_delete">Delete</string>
+
+    <!-- alpha.9 audit round -->
+    <string name="site_docroot_invalid">Invalid document root: must be an absolute path without newlines, quotes, backslashes or colons</string>
+    <string name="maria_remote_need_password">A non-empty root password is required before enabling LAN access: the default empty-password root lets anyone on the same Wi-Fi take over the database with zero credentials. Set the root password above first.</string>
+    <string name="maria_remote_set_password">Set root password</string>
+    <string name="repair_notice_title">Server components repaired automatically</string>
+    <string name="repair_notice_text">Detected corrupted or missing components (%1$s); they were re-downloaded from the mirror and installed.</string>
+    <string name="files_internal_protected">App-internal file (protected, read-only)</string>
+    <string name="files_share_unsupported">Cannot share this file (read or copy failed)</string>
+    <string name="files_browse_restricted">Cannot enter this directory (outside the allowed browsing range)</string>
+
 </resources>

@@ -228,6 +228,10 @@ var Editor = {
 
   saveActive: function () {
     if (activeId === null || !docs[activeId]) return;
+    // Same data-boundary rule as the Kotlin side (onSave refuses readOnly
+    // targets): the hidden button alone was the only guard, and any JS in
+    // this WebView could invoke NekoEditor.save() directly.
+    if (docs[activeId].readOnly) return;
     window.NekoEditor && window.NekoEditor.save(activeId, docs[activeId].doc.getValue());
   },
 };

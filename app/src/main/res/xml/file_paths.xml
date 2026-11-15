@@ -1,11 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
+    <!-- Sharing always goes through cacheDir/share: FilesPage copies the
+         file there first, so ANY readable file can be shared without
+         mapping broad roots. The previous external-path path="." entry
+         exposed the WHOLE /sdcard to any URI grant (one granted URI was
+         effectively directory-level read access); it is removed on
+         purpose. The old catch-all cache-path path="/" (whole cache dir,
+         incl. runtime-debs) stays removed as well. -->
+    <cache-path name="share" path="share/" />
     <files-path name="sites" path="sites/" />
     <files-path name="php" path="php/" />
-    <!-- Files shared from the file manager can also live on shared storage
-         (the Files tab browses /sdcard); without this entry FileProvider
-         refused every external file. The previous catch-all
-         cache-path path="/" exposed the whole cache dir (incl. runtime-debs)
-         for any granted URI - removed on purpose. -->
-    <external-path name="sdcard" path="." />
 </paths>

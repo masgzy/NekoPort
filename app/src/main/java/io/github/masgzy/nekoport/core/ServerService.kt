@@ -50,6 +50,23 @@ class ServerService : Service() {
                 return START_NOT_STICKY
             }
             else -> {
+                // A null intent means START_STICKY rebuilt this service after
+                // a process death (the app-side start path always carries
+                // ACTION_START). That path used to unconditionally startAll() -
+                // it ignored userStoppedServices, so services the user had
+                // deliberately stopped resurrected themselves after an LMK
+                // kill. The check MUST run before startAll is queued: the
+                // startAll coroutine clears the flag, so testing afterwards
+                // would race and lose the suppression.
+                if (intent == null && manager.userStoppedServices) {
+                    AppLog.i("Service", "sticky restart suppressed: user stopped the services")
+                    // startForeground first (restarting a foreground service
+                    // still owes the system a notification), then go away.
+                    startForegroundCompat()
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf()
+                    return START_NOT_STICKY
+                }
                 // The notification must appear immediately (main thread), but
                 // the actual service startup is blocking work: launch it on
                 // the service IO scope instead of freezing onStartCommand.
@@ -105,6 +122,7 @@ class ServerService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val ftpRunning = manager.state.value.ftpRunning
+        val mariaRunning = manager.state.value.mariaRunning
         val runningSites = manager.state.value.sites.count { it.running }
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
@@ -114,6 +132,7 @@ class ServerService : Service() {
                     R.string.notification_running_text,
                     runningSites,
                     if (ftpRunning) getString(R.string.site_status_running).lowercase() else getString(R.string.site_status_stopped).lowercase(),
+                    if (mariaRunning) getString(R.string.site_status_running).lowercase() else getString(R.string.site_status_stopped).lowercase(),
                 )
             )
             .setContentIntent(openIntent)
@@ -146,11 +165,15 @@ class ServerService : Service() {
 
     companion object {
         const val ACTION_STOP = "io.github.masgzy.nekoport.action.STOP"
+        /** App-side starts (switches, boot receiver) - distinguishes them from
+         *  the null-intent START_STICKY rebuild, whose startAll() must respect
+         *  userStoppedServices. */
+        const val ACTION_START = "io.github.masgzy.nekoport.action.START"
         private const val CHANNEL_ID = "nekoport_server"
         private const val NOTIFICATION_ID = 42
 
         fun start(context: android.content.Context) {
-            val intent = Intent(context, ServerService::class.java)
+            val intent = Intent(context, ServerService::class.java).setAction(ACTION_START)
             context.startForegroundService(intent)
         }
 

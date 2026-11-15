@@ -45,7 +45,16 @@ object AppLog {
     )
     val flow: SharedFlow<List<LogEntry>> = _flow
 
-    private val writerScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    /**
+     * Single-threaded disk writer: multi-threaded Dispatchers.IO let two
+     * queued entries race the delete()-then-appendText() rotation - one
+     * writer recreated the file while another had just deleted it, losing or
+     * interleaving lines. Limited to one thread; rotation renames instead of
+     * deleting (the old content survives as app.log.1).
+     */
+    private val writerScope = CoroutineScope(
+        SupervisorJob() + Dispatchers.IO.limitedParallelism(1)
+    )
     private var logFile: File? = null
 
     /** Wall clock of the last [clear]; queued disk writes older than this are dropped. */
@@ -93,7 +102,16 @@ object AppLog {
             // "clear logs" button look broken after an app restart.
             if (entry.time <= clearedAt) return
             file.parentFile?.mkdirs()
-            if (file.length() > 2 * 1024 * 1024) file.delete()
+            if (file.length() > 2 * 1024 * 1024) {
+                // rotate: keep the previous content as app.log.1 instead of
+                // delete-then-append (the old window lost freshly written
+                // entries to a concurrent writer recreating the file).
+                runCatching {
+                    val rotated = File(file.parentFile, file.name + ".1")
+                    rotated.delete()
+                    if (!file.renameTo(rotated)) file.delete()
+                }.onFailure { file.delete() }
+            }
             file.appendText(entry.format() + "\n")
         }
     }

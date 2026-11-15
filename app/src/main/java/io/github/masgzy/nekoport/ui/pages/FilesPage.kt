@@ -70,17 +70,38 @@ fun FilesPage(contentPadding: PaddingValues) {
 
     var selectedSiteIndex by remember { mutableStateOf(0) }
     var currentDir by remember { mutableStateOf(manager.sitesRoot) }
+    //
+    // Browse boundary (V11 fix): `..` used to climb out of the sites root all
+    // the way to filesDir - one accidental long-press on `runtime` + delete
+    // wiped config.json AND the MariaDB data directory with no warning.
+    // Navigation is now bounded by a floor: the sites root, the selected
+    // site's docroot, or /sdcard (via the internal-storage button). The
+    // floor moves only through explicit root switches, never through `..`.
+    var browseFloor by remember { mutableStateOf(manager.sitesRoot) }
     var dirVersion by remember { mutableStateOf(0) }
     var actionFile by remember { mutableStateOf<File?>(null) }
     var showCreateDialog by remember { mutableStateOf(false) }
     var createIsFolder by remember { mutableStateOf(true) }
     var toast by remember { mutableStateOf<String?>(null) }
 
+    fun File.isWithinFloor(): Boolean {
+        val canon = runCatching { canonicalPath }.getOrDefault(path)
+        val floor = runCatching { browseFloor.canonicalPath }.getOrDefault("")
+        return floor.isNotEmpty() && (canon == floor || canon.startsWith(floor + "/"))
+    }
+
+    fun switchRoot(target: File) {
+        browseFloor = target
+        currentDir = target
+        dirVersion++
+    }
+
     // Dashboard "open folder / edit files" requests land here.
     val targetDir by NekoNav.filesTargetDir.collectAsState()
     androidx.compose.runtime.LaunchedEffect(targetDir) {
         val dir = targetDir ?: return@LaunchedEffect
         if (dir.isDirectory || dir.mkdirs()) {
+            browseFloor = dir
             currentDir = dir
             dirVersion++
         }
@@ -148,13 +169,12 @@ fun FilesPage(contentPadding: PaddingValues) {
                     title = stringResource(R.string.files_pick_site),
                     onSelectedIndexChange = { idx ->
                         if (idx == 0) {
-                            currentDir = manager.sitesRoot
+                            switchRoot(manager.sitesRoot)
                         } else {
                             val site = sites.getOrNull(idx - 1) ?: return@OverlaySpinnerPreference
-                            currentDir = manager.siteDocRoot(site).apply { mkdirs() }
+                            switchRoot(manager.siteDocRoot(site).apply { mkdirs() })
                         }
                         selectedSiteIndex = (idx - 1).coerceAtLeast(0)
-                        dirVersion++
                     },
                 )
                 Row(
@@ -169,8 +189,7 @@ fun FilesPage(contentPadding: PaddingValues) {
                             scope.launch {
                                 val granted = SiteStorage.ensureStoragePermission(context)
                                 if (granted) {
-                                    currentDir = java.io.File("/sdcard")
-                                    dirVersion++
+                                    switchRoot(java.io.File("/sdcard"))
                                 } else {
                                     toast = context.getString(R.string.files_storage_denied)
                                 }
@@ -209,9 +228,15 @@ fun FilesPage(contentPadding: PaddingValues) {
             }
         }
 
-        // Parent directory entry ("..") - browsing may leave the sites root.
+        // Parent directory entry ("..") - only when it stays inside the
+        // browse floor. From the sites root the sites root IS the floor, so
+        // filesDir/runtime can no longer be reached (or deleted) by accident.
         val parent = parentDir
-        if (parent != null && parent.canonicalPath != currentDir.canonicalFile.canonicalPath) {
+        if (parent != null &&
+            parent.canonicalPath != currentDir.canonicalFile.canonicalPath &&
+            runCatching { parent.canonicalPath == browseFloor.canonicalPath ||
+                parent.canonicalPath.startsWith(browseFloor.canonicalPath + "/") }.getOrDefault(false)
+        ) {
             item {
                 Card(
                     modifier = Modifier.pressFeedback(cornerRadius = 16.dp),
@@ -250,8 +275,15 @@ fun FilesPage(contentPadding: PaddingValues) {
                     pressFeedbackType = PressFeedbackType.None,
                     onClick = {
                         if (file.isDirectory) {
-                            currentDir = file
-                            dirVersion++
+                            // Symlinks and bind mounts inside shared storage can
+                            // resolve outside the floor; canonical-check every
+                            // descent so the boundary actually holds.
+                            if (file.isWithinFloor()) {
+                                currentDir = file
+                                dirVersion++
+                            } else {
+                                toast = context.getString(R.string.files_browse_restricted)
+                            }
                         } else {
                             actionFile = file
                         }
@@ -316,6 +348,23 @@ fun FilesPage(contentPadding: PaddingValues) {
             onChanged = { dirVersion++ },
         )
     }
+}
+
+/**
+ * True for app-internal files OUTSIDE the sites root (config.json - now with
+ * encrypted credentials - runtime/ binaries, logs/, databases). The file
+ * manager must not offer rename/delete/share on them: one mis-tap on
+ * `runtime` used to wipe the whole server installation and every database.
+ * The browse floor already keeps them unreachable; this guards the dialog
+ * against files that enter the list some other way.
+ */
+internal fun isProtectedInternalFile(file: File, manager: ServerManager): Boolean {
+    val canon = runCatching { file.canonicalPath }.getOrDefault("")
+    val dataDir = runCatching { manager.sitesRoot.parentFile?.canonicalPath }.getOrNull() ?: ""
+    if (canon.isEmpty() || dataDir.isEmpty()) return false
+    if (!canon.startsWith(dataDir + "/")) return false
+    val sites = runCatching { manager.sitesRoot.canonicalPath }.getOrDefault("")
+    return !(canon == sites || canon.startsWith(sites + "/"))
 }
 
 private fun queryFileName(context: android.content.Context, uri: Uri): String? {
@@ -388,12 +437,17 @@ private fun FileActionDialog(
     val context = LocalContext.current
     val colorScheme = MiuixTheme.colorScheme
     val scope = rememberCoroutineScope()
+    val manager = NekoApp.get().serverManager
+    // App-internal files outside sites/ (config.json, runtime/...) are shown
+    // read-only: no share/edit/rename/delete (a stray tap on `runtime` used
+    // to delete the server binaries and every database at once).
+    val protectedFile = isProtectedInternalFile(file, manager)
     val isText = file.isFile && file.length() < 256 * 1024 &&
         MimeTypes.isTextLike(MimeTypes.of(file.name.substringAfterLast('.', "")))
     var showEditor by remember { mutableStateOf(false) }
     var showRename by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
-    var actionError by remember { mutableStateOf(false) }
+    var actionErrorRes by remember { mutableStateOf<Int?>(null) }
     // Read on IO: the old remember(file) { readText() } performed a blocking
     // up-to-256 KB read during composition - the file menu froze on slow
     // shared storage.
@@ -560,6 +614,14 @@ private fun FileActionDialog(
                     onClick = {
                         scope.launch {
                             withContext(Dispatchers.IO) {
+                                // Defense in depth: the browse floor keeps
+                                // app-internal files out of this dialog, but the
+                                // delete itself re-checks - runtime/ or
+                                // config.json vanishing here meant reinstalling
+                                // everything and losing every database.
+                                if (isProtectedInternalFile(file, manager)) {
+                                    return@withContext
+                                }
                                 if (file.isDirectory) file.deleteRecursively() else file.delete()
                             }
                             onChanged()
@@ -580,64 +642,88 @@ private fun FileActionDialog(
             onDismissRequest = onDismiss,
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                if (actionError) {
+                if (protectedFile) {
                     Text(
-                        text = stringResource(R.string.files_share_failed),
+                        text = stringResource(R.string.files_internal_protected),
                         color = colorScheme.primary,
                         style = MiuixTheme.textStyles.subtitle,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                     )
                 }
-                ArrowPreference(
-                    title = stringResource(R.string.files_share),
-                    onClick = {
-                        // The file manager can browse anywhere the app can read
-                        // (".." from the sites root reaches filesDir), but the
-                        // FileProvider only maps sites/, php/ and /sdcard. Sharing
-                        // anything else threw IllegalArgumentException and crashed.
-                        val uri = runCatching {
-                            FileProvider.getUriForFile(
-                                context,
-                                "io.github.masgzy.nekoport.fileprovider",
-                                file,
-                            )
-                        }.getOrNull()
-                        if (uri == null) {
-                            actionError = true
-                        } else {
-                            actionError = false
-                            val intent = Intent(Intent.ACTION_SEND).apply {
-                                type = MimeTypes.of(file.name.substringAfterLast('.', ""))
-                                putExtra(Intent.EXTRA_STREAM, uri)
-                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                            }
-                            runCatching { context.startActivity(Intent.createChooser(intent, null)) }
-                                .onFailure { actionError = true }
-                            if (!actionError) onDismiss()
-                        }
-                    },
-                )
-                if (isText) {
-                    ArrowPreference(
-                        title = stringResource(R.string.files_edit),
-                        onClick = { showEditor = true },
-                    )
-                } else if (file.isFile && file.length() >= 256 * 1024) {
+                actionErrorRes?.let { res ->
                     Text(
-                        text = stringResource(R.string.files_too_large),
-                        color = colorScheme.onSurfaceVariantSummary,
+                        text = stringResource(res),
+                        color = colorScheme.primary,
                         style = MiuixTheme.textStyles.subtitle,
-                        modifier = Modifier.padding(16.dp),
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                     )
                 }
-                ArrowPreference(
-                    title = stringResource(R.string.files_rename),
-                    onClick = { showRename = true },
-                )
-                ArrowPreference(
-                    title = stringResource(R.string.files_delete),
-                    onClick = { showDeleteConfirm = true },
-                )
+                if (!protectedFile) {
+                    ArrowPreference(
+                        title = stringResource(R.string.files_share),
+                        onClick = {
+                            // FileProvider only maps directories that are
+                            // declared in file_paths.xml; the file manager can
+                            // browse anywhere the app can read. Copy the file
+                            // into cacheDir/share first (the only mapped root)
+                            // so EVERY readable file is shareable, and so the
+                            // provider never hands out a URI into /sdcard at
+                            // large. Failures are told apart: a copy/URI error
+                            // is not the same as "no app to receive".
+                            scope.launch {
+                                val prepared = withContext(Dispatchers.IO) {
+                                    runCatching {
+                                        val shareRoot = File(context.cacheDir, "share")
+                                        shareRoot.deleteRecursively()
+                                        val session = File(shareRoot, "s${System.nanoTime()}")
+                                        session.mkdirs()
+                                        val copy = File(session, file.name)
+                                        file.copyTo(copy, overwrite = true)
+                                        FileProvider.getUriForFile(
+                                            context,
+                                            "io.github.masgzy.nekoport.fileprovider",
+                                            copy,
+                                        )
+                                    }.getOrNull()
+                                }
+                                if (prepared == null) {
+                                    actionErrorRes = R.string.files_share_unsupported
+                                } else {
+                                    actionErrorRes = null
+                                    val intent = Intent(Intent.ACTION_SEND).apply {
+                                        type = MimeTypes.of(file.name.substringAfterLast('.', ""))
+                                        putExtra(Intent.EXTRA_STREAM, prepared)
+                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                    }
+                                    runCatching { context.startActivity(Intent.createChooser(intent, null)) }
+                                        .onFailure { actionErrorRes = R.string.files_share_failed }
+                                    if (actionErrorRes == null) onDismiss()
+                                }
+                            }
+                        },
+                    )
+                    if (isText) {
+                        ArrowPreference(
+                            title = stringResource(R.string.files_edit),
+                            onClick = { showEditor = true },
+                        )
+                    } else if (file.isFile && file.length() >= 256 * 1024) {
+                        Text(
+                            text = stringResource(R.string.files_too_large),
+                            color = colorScheme.onSurfaceVariantSummary,
+                            style = MiuixTheme.textStyles.subtitle,
+                            modifier = Modifier.padding(16.dp),
+                        )
+                    }
+                    ArrowPreference(
+                        title = stringResource(R.string.files_rename),
+                        onClick = { showRename = true },
+                    )
+                    ArrowPreference(
+                        title = stringResource(R.string.files_delete),
+                        onClick = { showDeleteConfirm = true },
+                    )
+                }
             }
         }
     }

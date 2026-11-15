@@ -1,7 +1,12 @@
 package io.github.masgzy.nekoport.core
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
 import android.os.Process
+import io.github.masgzy.nekoport.MainActivity
 import io.github.masgzy.nekoport.R
 import io.github.masgzy.nekoport.core.Engine
 import io.github.masgzy.nekoport.core.MariaConfig
@@ -78,6 +83,9 @@ class ServerManager private constructor(private val context: Context) {
             instance ?: synchronized(this) {
                 instance ?: ServerManager(context.applicationContext).also { instance = it }
             }
+
+        private const val REPAIR_CHANNEL_ID = "nekoport_server"
+        private const val REPAIR_NOTIFICATION_ID = 43
     }
 
     private val configStore = ConfigStore(context)
@@ -105,6 +113,14 @@ class ServerManager private constructor(private val context: Context) {
     @Volatile
     var userStoppedServices: Boolean = false
         private set
+
+    /**
+     * Site ids the user explicitly stopped (the per-site switch calls
+     * [stopSite] WITHOUT clearing site.enabled - it only stops the process).
+     * The per-site KEEP_ALIVE watchdog must respect that choice, exactly like
+     * [userStoppedServices] guards the master switch.
+     */
+    private val userStoppedSites: MutableSet<Long> = ConcurrentHashMap.newKeySet()
 
     private val cronScheduler = CronScheduler(context, this)
 
@@ -143,9 +159,11 @@ class ServerManager private constructor(private val context: Context) {
 
     fun siteDir(name: String): File = File(sitesRoot, name)
 
-    /** Effective document root of [site]: custom absolute path or the default private dir. */
+    /** Effective document root of [site]: custom absolute path or the default private dir.
+     *  Legacy stored values are sanitized (quotes/newlines stripped) so they
+     *  cannot break the quoted engine directives downstream. */
     fun siteDocRoot(site: SiteConfig): File {
-        val custom = site.docRoot.trim()
+        val custom = ConfigWriter.safeDocRootPath(site.docRoot.trim())
         return if (custom.isEmpty()) File(sitesRoot, site.name) else File(custom)
     }
 
@@ -226,9 +244,48 @@ class ServerManager private constructor(private val context: Context) {
             ) { }.onSuccess { versions ->
                 AppLog.i("Manager", "runtime self-repair done: ${versions.map { "${it.key.label} ${it.value}" }}")
                 refreshRuntimeStatus()
+                // The repair downloads and executes fresh binaries with zero
+                // user interaction - never leave it fully silent: a visible
+                // (dismissable) notice tells the user what just happened.
+                postRepairNotice(context, targets)
             }.onFailure {
                 AppLog.e("Manager", "runtime self-repair failed: ${it.message}; use Settings to update components manually")
             }
+        }
+    }
+
+    /**
+     * User-visible notice for the silent self-repair path: re-used server
+     * notification channel, own id (never touches the foreground service
+     * notification), auto-cancel on tap.
+     */
+    private fun postRepairNotice(context: Context, targets: Set<String>) {
+        runCatching {
+            val nm = context.getSystemService(NotificationManager::class.java)
+            val channel = NotificationChannel(
+                REPAIR_CHANNEL_ID,
+                context.getString(R.string.notification_channel_server),
+                NotificationManager.IMPORTANCE_LOW,
+            )
+            channel.setShowBadge(false)
+            nm.createNotificationChannel(channel)
+            val openIntent = PendingIntent.getActivity(
+                context, 0,
+                Intent(context, MainActivity::class.java),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+            val text = context.getString(R.string.repair_notice_text, targets.joinToString(", "))
+            val notification = androidx.core.app.NotificationCompat.Builder(context, REPAIR_CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_notification)
+                .setContentTitle(context.getString(R.string.repair_notice_title))
+                .setContentText(text)
+                .setStyle(androidx.core.app.NotificationCompat.BigTextStyle().bigText(text))
+                .setContentIntent(openIntent)
+                .setAutoCancel(true)
+                .build()
+            nm.notify(REPAIR_NOTIFICATION_ID, notification)
+        }.onFailure {
+            AppLog.w("Manager", "repair notice failed: ${it.message}")
         }
     }
 
@@ -245,6 +302,7 @@ class ServerManager private constructor(private val context: Context) {
         }
         // An explicit start clears the watchdog suppression.
         userStoppedServices = false
+        userStoppedSites.clear()
         for (site in _config.value.sites) {
             if (site.enabled) startSiteInternal(site)
         }
@@ -281,11 +339,14 @@ class ServerManager private constructor(private val context: Context) {
         scope.launch { runCatching { stopSite(siteId) } }
     }
 
-    suspend fun startSite(site: SiteConfig) = siteMutex.withLock {
-        startSiteInternal(site)
+    suspend fun startSite(site: SiteConfig) = startAllMutex.withLock {
+        siteMutex.withLock {
+            startSiteInternal(site)
+        }
     }
 
     private suspend fun startSiteInternal(site: SiteConfig) = withContext(Dispatchers.IO) {
+        userStoppedSites.remove(site.id)
         ensureRuntimeHealthy()
         if (!TermuxRuntime.isInstalled(context)) {
             setSiteStatus(site.id, context.getString(R.string.site_status_no_runtime))
@@ -366,13 +427,18 @@ class ServerManager private constructor(private val context: Context) {
         publish()
     }
 
-    suspend fun stopSite(siteId: Long) = siteMutex.withLock {
-        withContext(Dispatchers.IO) {
-            val site = _config.value.sites.firstOrNull { it.id == siteId }
-            stopSiteQuiet(siteId)
-            if (site != null) ProcessController.stop("site-$siteId-${site.engine.id}")
-            siteSignatures.remove(siteId)
-            publish()
+    suspend fun stopSite(siteId: Long) = startAllMutex.withLock {
+        siteMutex.withLock {
+            withContext(Dispatchers.IO) {
+                val site = _config.value.sites.firstOrNull { it.id == siteId }
+                stopSiteQuiet(siteId)
+                if (site != null) ProcessController.stop("site-$siteId-${site.engine.id}")
+                siteSignatures.remove(siteId)
+                // The per-site switch stops WITHOUT clearing enabled; remember
+                // it so the KEEP_ALIVE watchdog does not undo the user.
+                userStoppedSites.add(siteId)
+                publish()
+            }
         }
     }
 
@@ -415,8 +481,10 @@ class ServerManager private constructor(private val context: Context) {
         scope.launch { runCatching { stopFtp() } }
     }
 
-    suspend fun startFtp() = ftpMutex.withLock {
-        startFtpInternal()
+    suspend fun startFtp() = startAllMutex.withLock {
+        ftpMutex.withLock {
+            startFtpInternal()
+        }
     }
 
     private suspend fun startFtpInternal() = withContext(Dispatchers.IO) {
@@ -593,11 +661,13 @@ class ServerManager private constructor(private val context: Context) {
         return text to p.exitValue()
     }
 
-    suspend fun stopFtp() = ftpMutex.withLock {
-        withContext(Dispatchers.IO) {
-            stopFtpQuiet()
-            ftpSignature = ""
-            publish()
+    suspend fun stopFtp() = startAllMutex.withLock {
+        ftpMutex.withLock {
+            withContext(Dispatchers.IO) {
+                stopFtpQuiet()
+                ftpSignature = ""
+                publish()
+            }
         }
     }
 
@@ -620,8 +690,10 @@ class ServerManager private constructor(private val context: Context) {
         scope.launch { runCatching { stopMaria() } }
     }
 
-    suspend fun startMaria() = mariaMutex.withLock {
-        startMariaInternal()
+    suspend fun startMaria() = startAllMutex.withLock {
+        mariaMutex.withLock {
+            startMariaInternal()
+        }
     }
 
     private suspend fun startMariaInternal() = withContext(Dispatchers.IO) {
@@ -673,7 +745,24 @@ class ServerManager private constructor(private val context: Context) {
             _state.value = _state.value.copy(
                 mariaStatusText = context.getString(R.string.maria_status_starting),
             )
-            val failure = MariaDbController.start(context, _config.value.maria, _config.value.settings.localOnly)
+            // Second line of defense for the LAN switch (the UI refuses to
+            // enable it without a root password): a config edited out of band
+            // (config.json hand-edited, restored backup) must never expose an
+            // empty-password root to the network. Bind loopback instead.
+            val maria = _config.value.maria
+            val localOnly = _config.value.settings.localOnly
+            val effectiveMaria = if (maria.allowRemote && !localOnly &&
+                !MariaDbController.isRootPasswordCustom(context)
+            ) {
+                AppLog.w(
+                    "Manager",
+                    "LAN access requested but root has no password; binding MariaDB to 127.0.0.1",
+                )
+                maria.copy(allowRemote = false)
+            } else {
+                maria
+            }
+            val failure = MariaDbController.start(context, effectiveMaria, localOnly)
             if (failure != null) {
                 if (!mariaStopRequested) {
                     _state.value = _state.value.copy(
@@ -695,18 +784,64 @@ class ServerManager private constructor(private val context: Context) {
         publish()
     }
 
-    suspend fun stopMaria() = mariaMutex.withLock {
-        withContext(Dispatchers.IO) {
-            mariaStopRequested = true
-            MariaDbController.stop(context)
-            // Kill the "starting database..." label immediately; the start
-            // path checks [mariaStopRequested] and won't override it.
-            _state.value = _state.value.copy(mariaRunning = false, mariaStatusText = null)
-            publish()
+    suspend fun stopMaria() = startAllMutex.withLock {
+        mariaMutex.withLock {
+            withContext(Dispatchers.IO) {
+                mariaStopRequested = true
+                MariaDbController.stop(context)
+                // Kill the "starting database..." label immediately; the start
+                // path checks [mariaStopRequested] and won't override it.
+                _state.value = _state.value.copy(mariaRunning = false, mariaStatusText = null)
+                publish()
+            }
         }
     }
 
     // ---------- state ----------
+
+    /**
+     * Per-component watchdog entry used by the cron KEEP_ALIVE task (replaces
+     * the old "restart everything only when ALL is dead" check, which ignored
+     * single crashed sites and a dead php-fpm behind alive static sites).
+     * Starts only what is enabled and down; respects the master-switch flag
+     * and per-site user stops. Callers hold no lifecycle locks.
+     */
+    suspend fun keepAliveTick() {
+        if (userStoppedServices) return
+        startAllMutex.withLock {
+            if (userStoppedServices) return@withLock
+            val sites = _config.value.sites
+            // php-fpm dying behind alive static sites used to be invisible:
+            // every PHP site kept returning 502 while "running" stayed true.
+            if (sites.any { it.enabled && it.enablePhp } &&
+                sites.any { it.enabled && ProcessController.isRunning("site-${it.id}-${it.engine.id}") } &&
+                !ProcessController.isRunning("php-fpm")
+            ) {
+                AppLog.w("Manager", "keep-alive: php-fpm died while sites are up; restarting it")
+                phpFpmSignature = ""
+                runCatching { ensurePhpFpm() }
+            }
+            for (site in sites) {
+                if (!site.enabled || site.id in userStoppedSites) continue
+                val key = "site-${site.id}-${site.engine.id}"
+                if (!ProcessController.isRunning(key)) {
+                    AppLog.i("Manager", "keep-alive: site '${site.name}' is down; starting")
+                    siteMutex.withLock { startSiteInternal(site) }
+                }
+            }
+            if (_config.value.ftp.enabled && !ProcessController.isRunning("ftp")) {
+                AppLog.i("Manager", "keep-alive: FTP is down; starting")
+                ftpMutex.withLock { startFtpInternal() }
+            }
+            if (_config.value.maria.enabled && !ProcessController.isRunning("maria") &&
+                !mariaStopRequested
+            ) {
+                AppLog.i("Manager", "keep-alive: MariaDB is down; starting")
+                mariaMutex.withLock { startMariaInternal() }
+            }
+            publish()
+        }
+    }
 
     private fun setSiteStatus(siteId: Long, text: String?) {
         _state.value = _state.value.copy(

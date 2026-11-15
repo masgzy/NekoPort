@@ -66,6 +66,7 @@ fun MariaPanel() {
     var showRemoteWarn by remember { mutableStateOf(false) }
     var showPasswordDialog by remember { mutableStateOf(false) }
     var rootPasswordCustom by remember { mutableStateOf(MariaDbController.isRootPasswordCustom(context)) }
+    var showRemoteNeedPassword by remember { mutableStateOf(false) }
 
     val mariaVersion = state.runtime.versions[RuntimePackage.MARIADB]
     val mariaInstalled = remember(state.runtime.versions) {
@@ -216,10 +217,17 @@ fun MariaPanel() {
                     checked = maria.allowRemote,
                     onCheckedChange = { on ->
                         if (on) {
-                            // Enabling LAN access with a (default) empty root
-                            // password exposes every database without
-                            // credentials; require an explicit confirmation.
-                            showRemoteWarn = true
+                            if (rootPasswordCustom) {
+                                // LAN access with a user-set root password:
+                                // still worth a warning, but the credential
+                                // exists. With the default EMPTY root password
+                                // this dialog used to be a formality - the
+                                // whole database was reachable with zero
+                                // credentials from the network.
+                                showRemoteWarn = true
+                            } else {
+                                showRemoteNeedPassword = true
+                            }
                         } else {
                             manager.updateMaria(maria.copy(allowRemote = false))
                         }
@@ -336,6 +344,40 @@ fun MariaPanel() {
                     onClick = { versionDetails = null },
                     modifier = Modifier.fillMaxWidth(),
                 )
+            }
+        }
+    }
+
+    // LAN-access confirmation: with the default empty root password the whole
+    // database would be readable/writable by anyone on the network.
+    if (showRemoteNeedPassword) {
+        OverlayDialog(
+            show = true,
+            title = stringResource(R.string.maria_remote_warn_title),
+            onDismissRequest = { showRemoteNeedPassword = false },
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    text = stringResource(R.string.maria_remote_need_password),
+                    color = colorScheme.primary,
+                    style = MiuixTheme.textStyles.main,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    NekoTextButton(
+                        text = stringResource(R.string.dialog_cancel),
+                        onClick = { showRemoteNeedPassword = false },
+                        modifier = Modifier.weight(1f),
+                    )
+                    NekoTextButton(
+                        text = stringResource(R.string.maria_remote_set_password),
+                        onClick = {
+                            showRemoteNeedPassword = false
+                            showPasswordDialog = true
+                        },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
             }
         }
     }

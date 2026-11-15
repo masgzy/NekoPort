@@ -3,7 +3,7 @@
     <string name="app_name">NekoPort</string>
     <string name="notification_channel_server">服务器运行状态</string>
     <string name="notification_running_title">NekoPort 正在运行</string>
-    <string name="notification_running_text">%1$d 个站点服务中 · FTP %2$s</string>
+    <string name="notification_running_text">站点 %1$d 个运行中 · FTP %2$s · DB %3$s</string>
     <string name="notification_stop_action">停止全部服务</string>
 
     <string name="tab_dashboard">仪表盘</string>
@@ -306,4 +306,15 @@
     <string name="dialog_ok">确定</string>
     <string name="dialog_cancel">取消</string>
     <string name="dialog_delete">删除</string>
+
+    <!-- alpha.9 audit round -->
+    <string name="site_docroot_invalid">站点目录无效：必须是绝对路径，且不能包含换行、引号、反斜杠或冒号</string>
+    <string name="maria_remote_need_password">开启局域网访问前必须先为 root 设置非空密码：默认的空密码 root 意味着同一 Wi-Fi 下任何人无需凭据即可完全接管数据库。请先在上方设置 root 密码。</string>
+    <string name="maria_remote_set_password">去设置 root 密码</string>
+    <string name="repair_notice_title">服务器组件已自动修复</string>
+    <string name="repair_notice_text">检测到损坏或缺失的组件（%1$s），已从镜像重新下载并安装。</string>
+    <string name="files_internal_protected">应用内部文件（受保护，只读）</string>
+    <string name="files_share_unsupported">无法分享该文件（读取或复制失败）</string>
+    <string name="files_browse_restricted">无法进入该目录（已超出允许浏览的范围）</string>
+
 </resources>
