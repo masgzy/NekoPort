@@ -80,6 +80,7 @@
     <string name="site_port_conflict_maria">端口已被 MySQL 占用</string>
     <string name="site_port_conflict_pasv">端口落在 FTP 被动端口段内</string>
     <string name="site_invalid_name">站点名称只能包含字母、数字、下划线和连字符</string>
+    <string name="site_name_conflict">站点名称已存在</string>
     <string name="site_invalid_port">端口需在 1024-65535 之间</string>
 
     <!-- PHP -->
@@ -242,6 +243,8 @@
     <string name="files_edit">编辑</string>
     <string name="files_uploaded">上传完成</string>
     <string name="files_upload_failed">上传失败：写入被拒绝</string>
+    <string name="files_save_failed">保存失败：写入被拒绝</string>
+    <string name="files_share_failed">无法分享该位置的文件</string>
     <string name="files_too_large">文件超过 256KB，仅支持分享，不支持在线编辑</string>
     <string name="files_confirm_delete">删除 %1$s？</string>
     <string name="files_content">文件内容</string>
@@ -277,6 +280,7 @@
     <string name="editor_lines">共 %1$d 行</string>
     <string name="editor_modified">已修改</string>
     <string name="editor_saved">已保存</string>
+    <string name="editor_save_failed">保存失败：无法写入文件（磁盘已满、文件被移动或权限不足）</string>
     <string name="editor_case_sensitive_on">区分大小写：开</string>
     <string name="editor_case_sensitive_off">区分大小写：关</string>
     <string name="editor_tab_key">TAB</string>

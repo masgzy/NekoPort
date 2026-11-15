@@ -93,8 +93,20 @@ fun DashboardPage(contentPadding: PaddingValues) {
                     checked = state.running,
                     onCheckedChange = { on ->
                         if (on) {
-                            ServerService.start(context)
-                            manager.startAllAsync()
+                            // Without the runtime the switch flipped, nothing
+                            // started and it snapped back silently - looked
+                            // broken. Point the user at the installer instead.
+                            if (!state.runtime.installed) {
+                                Toast.makeText(
+                                    context,
+                                    context.getString(R.string.dashboard_install_hint),
+                                    Toast.LENGTH_LONG,
+                                ).show()
+                                NekoNav.goToTab(AppRoot.tabIndexOf(NekoTab.SETTINGS))
+                            } else {
+                                ServerService.start(context)
+                                manager.startAllAsync()
+                            }
                         } else {
                             ServerService.stop(context)
                         }

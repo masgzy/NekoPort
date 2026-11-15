@@ -273,15 +273,17 @@ fun FilesPage(contentPadding: PaddingValues) {
                                 color = colorScheme.onSurface,
                                 style = MiuixTheme.textStyles.main,
                             )
-                            Text(
-                                text = if (file.isDirectory) {
-                                    "${file.listFiles()?.size ?: 0} items"
-                                } else {
-                                    formatSize(file.length())
-                                },
-                                color = colorScheme.onSurfaceVariantSummary,
-                                style = MiuixTheme.textStyles.subtitle,
-                            )
+                            // Directory child counts are intentionally NOT shown:
+                            // listFiles() is a full directory scan and used to run
+                            // on the MAIN thread per row - browsing /sdcard froze
+                            // the UI (one scan per visible folder per frame).
+                            if (!file.isDirectory) {
+                                Text(
+                                    text = formatSize(file.length()),
+                                    color = colorScheme.onSurfaceVariantSummary,
+                                    style = MiuixTheme.textStyles.subtitle,
+                                )
+                            }
                         }
                     }
                 }
@@ -391,11 +393,13 @@ private fun FileActionDialog(
     var showEditor by remember { mutableStateOf(false) }
     var showRename by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
+    var actionError by remember { mutableStateOf(false) }
     // Read on IO: the old remember(file) { readText() } performed a blocking
     // up-to-256 KB read during composition - the file menu froze on slow
     // shared storage.
     var editorLoaded by remember(file) { mutableStateOf(false) }
     var editorContent by remember(file) { mutableStateOf(TextFieldValue("")) }
+    var saveFailed by remember(file) { mutableStateOf(false) }
     // produceState returns an immutable State, so the editor's onValueChange
     // could not write back; load through a LaunchedEffect instead, still on IO.
     LaunchedEffect(file) {
@@ -426,6 +430,13 @@ private fun FileActionDialog(
                     onValueChange = { editorContent = it },
                     modifier = Modifier.fillMaxWidth(),
                 )
+                if (saveFailed) {
+                    Text(
+                        text = stringResource(R.string.files_save_failed),
+                        color = colorScheme.primary,
+                        style = MiuixTheme.textStyles.subtitle,
+                    )
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     NekoTextButton(
                         text = stringResource(R.string.dialog_cancel),
@@ -439,10 +450,19 @@ private fun FileActionDialog(
                         text = stringResource(R.string.site_confirm),
                         onClick = {
                             scope.launch {
-                                withContext(Dispatchers.IO) { file.writeText(editorContent.text) }
-                                onChanged()
-                                showEditor = false
-                                onDismiss()
+                                // writeText throws on disk-full / vanished file /
+                                // revoked permissions - unguarded it crashed the
+                                // app straight out of the editor dialog.
+                                val ok = withContext(Dispatchers.IO) {
+                                    runCatching { file.writeText(editorContent.text) }.isSuccess
+                                }
+                                if (ok) {
+                                    onChanged()
+                                    showEditor = false
+                                    onDismiss()
+                                } else {
+                                    saveFailed = true
+                                }
                             }
                         },
                         modifier = Modifier.weight(1f),
@@ -560,21 +580,41 @@ private fun FileActionDialog(
             onDismissRequest = onDismiss,
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                if (actionError) {
+                    Text(
+                        text = stringResource(R.string.files_share_failed),
+                        color = colorScheme.primary,
+                        style = MiuixTheme.textStyles.subtitle,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
+                }
                 ArrowPreference(
                     title = stringResource(R.string.files_share),
                     onClick = {
-                        val uri = FileProvider.getUriForFile(
-                            context,
-                            "io.github.masgzy.nekoport.fileprovider",
-                            file,
-                        )
-                        val intent = Intent(Intent.ACTION_SEND).apply {
-                            type = MimeTypes.of(file.name.substringAfterLast('.', ""))
-                            putExtra(Intent.EXTRA_STREAM, uri)
-                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        // The file manager can browse anywhere the app can read
+                        // (".." from the sites root reaches filesDir), but the
+                        // FileProvider only maps sites/, php/ and /sdcard. Sharing
+                        // anything else threw IllegalArgumentException and crashed.
+                        val uri = runCatching {
+                            FileProvider.getUriForFile(
+                                context,
+                                "io.github.masgzy.nekoport.fileprovider",
+                                file,
+                            )
+                        }.getOrNull()
+                        if (uri == null) {
+                            actionError = true
+                        } else {
+                            actionError = false
+                            val intent = Intent(Intent.ACTION_SEND).apply {
+                                type = MimeTypes.of(file.name.substringAfterLast('.', ""))
+                                putExtra(Intent.EXTRA_STREAM, uri)
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                            runCatching { context.startActivity(Intent.createChooser(intent, null)) }
+                                .onFailure { actionError = true }
+                            if (!actionError) onDismiss()
                         }
-                        context.startActivity(Intent.createChooser(intent, null))
-                        onDismiss()
                     },
                 )
                 if (isText) {

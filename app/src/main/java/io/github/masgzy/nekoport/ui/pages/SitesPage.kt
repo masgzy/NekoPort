@@ -535,6 +535,13 @@ private fun SiteEditorDialog(site: SiteConfig?, onDismiss: () -> Unit) {
                                 showError(R.string.site_invalid_name)
                                 return@NekoTextButton
                             }
+                            // Two sites sharing one name share one docRoot
+                            // (sites/<name>) - the second site silently serves
+                            // the first one's files. Refuse the name up front.
+                            if (config.sites.any { it.name.equals(candidate, ignoreCase = true) }) {
+                                showError(R.string.site_name_conflict)
+                                return@NekoTextButton
+                            }
                             finalName = candidate
                             // All disk work and the (blocking) service launch run on IO.
                             scope.launch(Dispatchers.IO) {

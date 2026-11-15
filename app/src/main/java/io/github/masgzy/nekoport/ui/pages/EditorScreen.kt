@@ -236,11 +236,6 @@ private fun CodeEditorScreen() {
     val activeIndex = session?.activeIndex?.coerceIn(0, targets.lastIndex) ?: 0
     val activeTarget = targets[activeIndex]
 
-    val tabStates = remember(targets.map { it.id }) {
-        targets.map { EditorTabState(it) }
-    }
-    val tabState = tabStates.firstOrNull { it.target.id == activeTarget.id } ?: tabStates[0]
-
     val dark = when (config.settings.themeMode) {
         ThemeMode.SYSTEM -> isSystemInDarkTheme()
         ThemeMode.LIGHT -> false
@@ -253,8 +248,20 @@ private fun CodeEditorScreen() {
     var showGoto by remember { mutableStateOf(false) }
     var showUnsaved by remember { mutableStateOf(false) }
     var showReset by remember { mutableStateOf(false) }
+    var saveError by remember { mutableStateOf(false) }
     var closingTabIndex by remember { mutableIntStateOf(-1) } // -1 = closing the whole editor
     var fontSize by remember { mutableIntStateOf(config.settings.editorFontSize) }
+
+    // Per-tab native state must SURVIVE changes to the tab set. The previous
+    // remember(targets.map { it.id }) rebuilt every EditorTabState whenever a
+    // tab was opened/closed: the ACTIVE tab's loaded flag reset to false and
+    // the LaunchedEffect (keyed by the unchanged tab id) never re-fired, so
+    // the save button stayed disabled forever after closing a background tab.
+    val tabStatesById = remember { mutableMapOf<String, EditorTabState>() }
+    val knownIds = targets.mapTo(HashSet()) { it.id }
+    tabStatesById.keys.retainAll(knownIds)
+    targets.forEach { target -> tabStatesById.getOrPut(target.id) { EditorTabState(target) } }
+    val tabState = tabStatesById.getValue(activeTarget.id)
 
     val pendingClose by OverlayBus.pendingClose.collectAsState()
 
@@ -266,7 +273,8 @@ private fun CodeEditorScreen() {
     }
 
     fun saveTabThen(index: Int, then: () -> Unit) {
-        val id = tabStates[index].target.id
+        val id = targets[index].id
+        saveError = false
         editorBridge?.pendingAfterSave = then
         editorBridge?.eval("Editor.switchDoc(${jsString(id)}); Editor.saveActive();")
     }
@@ -317,7 +325,10 @@ private fun CodeEditorScreen() {
                 NekoTextButton(
                     text = stringResource(R.string.editor_save),
                     enabled = tabState.loaded,
-                    onClick = { editorBridge?.eval("Editor.saveActive()") },
+                    onClick = {
+                        saveError = false
+                        editorBridge?.eval("Editor.saveActive()")
+                    },
                 )
             }
         },
@@ -330,18 +341,18 @@ private fun CodeEditorScreen() {
                 .padding(horizontal = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            tabStates.forEachIndexed { index, ts ->
+            targets.forEachIndexed { index, target ->
                 EditorTabChip(
-                    title = ts.target.title,
-                    dirty = dirtyByTab[ts.target.id] ?: false,
+                    title = target.title,
+                    dirty = dirtyByTab[target.id] ?: false,
                     selected = index == activeIndex,
                     onClick = { OverlayBus.setActiveTab(index) },
                     onClose = {
-                        if (dirtyByTab[ts.target.id] == true) {
+                        if (dirtyByTab[target.id] == true) {
                             closingTabIndex = index
                             showUnsaved = true
                         } else {
-                            editorBridge?.closeDoc(ts.target.id)
+                            editorBridge?.closeDoc(target.id)
                             OverlayBus.closeTab(index)
                         }
                     },
@@ -389,10 +400,24 @@ private fun CodeEditorScreen() {
             onDirty = { id, dirty ->
                 dirtyByTab = dirtyByTab + (id to dirty)
             },
+            onSaveError = { saveError = true },
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f),
         )
+
+        // ---- save failure feedback ----
+        // The old code swallowed write errors (disk full / file deleted /
+        // permission lost): the user saw "saved", pendingAfterSave still ran
+        // and the tab closed - edits lost without a trace.
+        if (saveError) {
+            Text(
+                text = stringResource(R.string.editor_save_failed),
+                color = colorScheme.primary,
+                style = MiuixTheme.textStyles.subtitle,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+            )
+        }
 
         // ---- symbol bar ----
         SymbolBar(
@@ -474,7 +499,13 @@ private fun CodeEditorScreen() {
             show = true,
             title = stringResource(R.string.editor_unsaved_title),
             summary = stringResource(R.string.editor_unsaved_summary),
-            onDismissRequest = { showUnsaved = false },
+            // Clearing the flag here matters: pendingClose stays true otherwise,
+            // and the next dirty-state change re-triggers the LaunchedEffect
+            // below - the dialog the user just dismissed pops up again.
+            onDismissRequest = {
+                showUnsaved = false
+                OverlayBus.clearPendingClose()
+            },
         ) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 NekoTextButton(
@@ -482,7 +513,7 @@ private fun CodeEditorScreen() {
                     onClick = {
                         showUnsaved = false
                         if (closingTabIndex >= 0) {
-                            val id = tabStates[closingTabIndex].target.id
+                            val id = targets[closingTabIndex].id
                             editorBridge?.closeDoc(id)
                             OverlayBus.closeTab(closingTabIndex)
                             closingTabIndex = -1
@@ -500,7 +531,7 @@ private fun CodeEditorScreen() {
                             val index = closingTabIndex
                             closingTabIndex = -1
                             saveTabThen(index) {
-                                editorBridge?.closeDoc(tabStates[index].target.id)
+                                editorBridge?.closeDoc(targets[index].id)
                                 OverlayBus.closeTab(index)
                             }
                         } else {
@@ -564,7 +595,10 @@ private var editorBridge: EditorBridge? = null
  */
 private class EditorBridge(
     private val onStateJson: (JSONObject) -> Unit,
-    private val onSave: (id: String, content: String) -> Unit,
+    // Returns false when the write failed - the UI must show it instead of
+    // pretending the file was saved (the old version swallowed IOExceptions).
+    private val onSave: (id: String, content: String) -> Boolean,
+    private val onSaveError: () -> Unit,
 ) {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val ioScope = kotlinx.coroutines.CoroutineScope(
@@ -584,12 +618,18 @@ private class EditorBridge(
     @JavascriptInterface
     fun save(id: String, content: String) {
         ioScope.launch {
-            onSave(id, content)
+            val ok = onSave(id, content)
             mainHandler.post {
-                val after = pendingAfterSave
+                // On failure: no markSaved (the WebView keeps its dirty flag),
+                // and the queued close/tab-switch is dropped so the user can
+                // still react (retry save / copy content elsewhere).
                 pendingAfterSave = null
-                after?.invoke()
-                eval("Editor.markSaved(${jsString(id)})")
+                if (ok) {
+                    pendingAfterSave?.invoke()
+                    eval("Editor.markSaved(${jsString(id)})")
+                } else {
+                    onSaveError()
+                }
             }
         }
     }
@@ -634,6 +674,7 @@ private fun EditorWebView(
     fontSize: Int,
     onUiState: (EditorUiState) -> Unit,
     onDirty: (id: String, dirty: Boolean) -> Unit,
+    onSaveError: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colorScheme = MiuixTheme.colorScheme
@@ -681,13 +722,16 @@ private fun EditorWebView(
                     },
                     onSave = { id, content ->
                         val target = OverlayBus.editor.value?.targets?.firstOrNull { it.id == id }
-                        if (target != null) {
+                        if (target == null) {
+                            false
+                        } else {
                             runCatching {
                                 target.file.parentFile?.mkdirs()
                                 target.file.writeText(content)
-                            }
+                            }.isSuccess
                         }
                     },
+                    onSaveError = onSaveError,
                 )
                 addJavascriptInterface(bridge, "NekoEditor")
                 editorBridge = bridge

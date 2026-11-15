@@ -403,9 +403,15 @@ private fun RuntimeComponentsCard() {
     var sizes by remember { mutableStateOf<Map<RuntimePackage, Long>>(emptyMap()) }
 
     LaunchedEffect(state.runtime.installed, state.runtime.versions) {
-        val out = HashMap<RuntimePackage, Long>()
-        for (pkg in RuntimePackage.ALL) {
-            out[pkg] = TermuxRuntime.packageSize(context, pkg)
+        // packageSize parses installed.json per package and stats every recorded
+        // file (thousands of stats on a full runtime) - that used to run on the
+        // MAIN thread inside LaunchedEffect and froze the settings tab.
+        val out = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val m = HashMap<RuntimePackage, Long>()
+            for (pkg in RuntimePackage.ALL) {
+                m[pkg] = TermuxRuntime.packageSize(context, pkg)
+            }
+            m
         }
         sizes = out
     }

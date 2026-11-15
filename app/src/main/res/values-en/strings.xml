@@ -76,6 +76,7 @@
     <string name="site_port_conflict_maria">Port already used by MySQL</string>
     <string name="site_port_conflict_pasv">Port falls inside the FTP passive range</string>
     <string name="site_invalid_name">Site name may only contain letters, digits, underscores and hyphens</string>
+    <string name="site_name_conflict">A site with this name already exists</string>
     <string name="site_invalid_port">Port must be within 1024-65535</string>
 
     <!-- PHP -->
@@ -221,6 +222,8 @@
     <string name="files_edit">Edit</string>
     <string name="files_uploaded">Upload finished</string>
     <string name="files_upload_failed">Upload failed: write was rejected</string>
+    <string name="files_save_failed">Save failed: write was rejected</string>
+    <string name="files_share_failed">Cannot share a file from this location</string>
     <string name="files_too_large">File exceeds 256KB - sharing only, no inline editing</string>
     <string name="files_confirm_delete">Delete %1$s?</string>
     <string name="files_content">File content</string>
@@ -255,6 +258,7 @@
     <string name="editor_lines">%1$d lines</string>
     <string name="editor_modified">Modified</string>
     <string name="editor_saved">Saved</string>
+    <string name="editor_save_failed">Save failed: could not write the file (disk full, file moved, or permission denied)</string>
     <string name="editor_case_sensitive_on">Case sensitive: on</string>
     <string name="editor_case_sensitive_off">Case sensitive: off</string>
     <string name="editor_tab_key">TAB</string>
